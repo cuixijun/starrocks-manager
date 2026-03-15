@@ -4,7 +4,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useSession } from '@/hooks/useSession';
 import {
   Users, Plus, Trash2, RefreshCw, Search, X,
-  ChevronUp, ChevronDown, ChevronsUpDown, Clock, Key, ShieldCheck, ChevronRight
+  ChevronUp, ChevronDown, ChevronsUpDown, Clock, Key, ShieldCheck, ChevronRight,
+  Shield, UserPlus,
 } from 'lucide-react';
 
 interface UserEntry {
@@ -45,6 +46,17 @@ export default function UsersPage() {
   const [expandedGrants, setExpandedGrants] = useState<Set<string>>(new Set());
   const [fromCache, setFromCache] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Grant privilege modal
+  const [showGrant, setShowGrant] = useState<string | null>(null); // user identity
+  const [grantAction, setGrantAction] = useState<'grant_privilege' | 'revoke_privilege'>('grant_privilege');
+  const [grantPriv, setGrantPriv] = useState('SELECT');
+  const [grantObjType, setGrantObjType] = useState('TABLE');
+  const [grantObjName, setGrantObjName] = useState('');
+  // Role assignment modal
+  const [showRoleAssign, setShowRoleAssign] = useState<string | null>(null);
+  const [roleAction, setRoleAction] = useState<'grant_role' | 'revoke_role'>('grant_role');
+  const [roleNameInput, setRoleNameInput] = useState('');
 
   const fetchUsers = useCallback(async (forceRefresh = false) => {
     if (!session) return;
@@ -119,6 +131,55 @@ export default function UsersPage() {
   }
 
   const SYSTEM_USERS = new Set(['root', 'starrocks']);
+
+  async function handleGrantPrivilege() {
+    if (!session || !showGrant || !grantObjName) return;
+    setError('');
+    try {
+      const res = await fetch('/api/grants', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: session.sessionId,
+          action: grantAction,
+          grantee: showGrant,
+          privilege: grantPriv,
+          objectType: grantObjType,
+          objectName: grantObjName,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) setError(data.error);
+      else {
+        setSuccess(`${grantAction === 'grant_privilege' ? '授权' : '撤销'}成功`);
+        setShowGrant(null);
+        fetchUsers(true);
+      }
+    } catch (err) { setError(String(err)); }
+  }
+
+  async function handleRoleAssign() {
+    if (!session || !showRoleAssign || !roleNameInput) return;
+    setError('');
+    try {
+      const res = await fetch('/api/grants', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: session.sessionId,
+          action: roleAction,
+          grantee: showRoleAssign,
+          roleName: roleNameInput,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) setError(data.error);
+      else {
+        setSuccess(`${roleAction === 'grant_role' ? '角色授予' : '角色撤销'}成功`);
+        setShowRoleAssign(null);
+        setRoleNameInput('');
+        fetchUsers(true);
+      }
+    } catch (err) { setError(String(err)); }
+  }
 
   const filtered = users
     .filter(u => u.identity.toLowerCase().includes(search.toLowerCase()))
@@ -196,7 +257,7 @@ export default function UsersPage() {
                   <th>主机</th>
                   <th>类型</th>
                   <th>权限授权</th>
-                  <th style={{ textAlign: 'center', width: '72px' }}>操作</th>
+                  <th style={{ textAlign: 'center', width: '130px' }}>操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -305,19 +366,35 @@ export default function UsersPage() {
                       </td>
 
                       {/* Actions */}
-                      <td style={{ textAlign: 'center' }}>
-                        {!isSystem ? (
+                      <td>
+                        <div style={{ display: 'flex', gap: '2px', justifyContent: 'center' }}>
                           <button
                             className="btn btn-ghost btn-icon"
-                            style={{ color: 'var(--danger-500)' }}
-                            onClick={() => handleDelete(u.identity)}
-                            title="删除用户"
+                            style={{ color: 'var(--primary-600)' }}
+                            onClick={() => setShowGrant(u.identity)}
+                            title="授权"
                           >
-                            <Trash2 size={15} />
+                            <Shield size={14} />
                           </button>
-                        ) : (
-                          <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>—</span>
-                        )}
+                          <button
+                            className="btn btn-ghost btn-icon"
+                            style={{ color: 'var(--success-600)' }}
+                            onClick={() => setShowRoleAssign(u.identity)}
+                            title="分配角色"
+                          >
+                            <UserPlus size={14} />
+                          </button>
+                          {!isSystem && (
+                            <button
+                              className="btn btn-ghost btn-icon"
+                              style={{ color: 'var(--danger-500)' }}
+                              onClick={() => handleDelete(u.identity)}
+                              title="删除用户"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -374,6 +451,118 @@ export default function UsersPage() {
                 <button className="btn btn-secondary" onClick={() => setShowCreate(false)}>取消</button>
                 <button className="btn btn-primary" onClick={handleCreate} disabled={creating || !form.username}>
                   {creating ? <span className="spinner" /> : <Plus size={16} />} 创建
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Grant Privilege Modal */}
+        {showGrant && (
+          <div className="modal-overlay" onClick={() => setShowGrant(null)}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '560px' }}>
+              <div className="modal-header">
+                <div className="modal-title">授权 / 撤销权限 — {showGrant}</div>
+                <button className="btn-ghost btn-icon" onClick={() => setShowGrant(null)}><X size={18} /></button>
+              </div>
+              <div className="modal-body">
+                <div className="form-group">
+                  <label className="form-label">操作</label>
+                  <select className="input" value={grantAction} onChange={e => setGrantAction(e.target.value as 'grant_privilege' | 'revoke_privilege')}>
+                    <option value="grant_privilege">授予 (GRANT)</option>
+                    <option value="revoke_privilege">撤销 (REVOKE)</option>
+                  </select>
+                </div>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">权限类型</label>
+                    <select className="input" value={grantPriv} onChange={e => setGrantPriv(e.target.value)}>
+                      <option value="ALL">ALL (全部)</option>
+                      <option value="SELECT">SELECT</option>
+                      <option value="INSERT">INSERT</option>
+                      <option value="UPDATE">UPDATE</option>
+                      <option value="DELETE">DELETE</option>
+                      <option value="ALTER">ALTER</option>
+                      <option value="DROP">DROP</option>
+                      <option value="CREATE TABLE">CREATE TABLE</option>
+                      <option value="CREATE VIEW">CREATE VIEW</option>
+                      <option value="CREATE MATERIALIZED VIEW">CREATE MV</option>
+                      <option value="USAGE">USAGE</option>
+                      <option value="IMPERSONATE">IMPERSONATE</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">对象类型</label>
+                    <select className="input" value={grantObjType} onChange={e => setGrantObjType(e.target.value)}>
+                      <option value="TABLE">TABLE</option>
+                      <option value="ALL TABLES IN DATABASE">ALL TABLES IN DATABASE</option>
+                      <option value="ALL TABLES IN ALL DATABASES">ALL TABLES IN ALL DATABASES</option>
+                      <option value="DATABASE">DATABASE</option>
+                      <option value="ALL DATABASES">ALL DATABASES</option>
+                      <option value="CATALOG">CATALOG</option>
+                      <option value="ALL CATALOGS">ALL CATALOGS</option>
+                      <option value="MATERIALIZED VIEW">MATERIALIZED VIEW</option>
+                      <option value="ALL MATERIALIZED VIEWS IN DATABASE">ALL MVs IN DATABASE</option>
+                      <option value="FUNCTION">FUNCTION</option>
+                      <option value="ALL FUNCTIONS IN DATABASE">ALL FUNCTIONS IN DATABASE</option>
+                      <option value="ALL GLOBAL FUNCTIONS">ALL GLOBAL FUNCTIONS</option>
+                      <option value="RESOURCE GROUP">RESOURCE GROUP</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">对象名 <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>（如 db.table 或 db_name，ALL 类型填空即可）</span></label>
+                  <input className="input" placeholder="database.table 或 database_name" value={grantObjName} onChange={e => setGrantObjName(e.target.value)} />
+                </div>
+                {/* SQL Preview */}
+                <div style={{ marginTop: '8px', padding: '10px 14px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-secondary)' }}>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-tertiary)', marginBottom: '4px' }}>SQL 预览</div>
+                  <code style={{ fontSize: '0.78rem', color: 'var(--primary-600)', fontFamily: "'JetBrains Mono', monospace", wordBreak: 'break-all' }}>
+                    {grantAction === 'grant_privilege' ? 'GRANT' : 'REVOKE'} {grantPriv} ON {grantObjType} {grantObjName || '...'} {grantAction === 'grant_privilege' ? 'TO' : 'FROM'} {showGrant}
+                  </code>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button className="btn btn-secondary" onClick={() => setShowGrant(null)}>取消</button>
+                <button className="btn btn-primary" onClick={handleGrantPrivilege} disabled={!grantObjName && !grantObjType.startsWith('ALL')}>
+                  <Shield size={16} /> {grantAction === 'grant_privilege' ? '授权' : '撤销'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Role Assignment Modal */}
+        {showRoleAssign && (
+          <div className="modal-overlay" onClick={() => setShowRoleAssign(null)}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '440px' }}>
+              <div className="modal-header">
+                <div className="modal-title">分配 / 撤销角色 — {showRoleAssign}</div>
+                <button className="btn-ghost btn-icon" onClick={() => setShowRoleAssign(null)}><X size={18} /></button>
+              </div>
+              <div className="modal-body">
+                <div className="form-group">
+                  <label className="form-label">操作</label>
+                  <select className="input" value={roleAction} onChange={e => setRoleAction(e.target.value as 'grant_role' | 'revoke_role')}>
+                    <option value="grant_role">授予角色 (GRANT)</option>
+                    <option value="revoke_role">撤销角色 (REVOKE)</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">角色名</label>
+                  <input className="input" placeholder="role_name" value={roleNameInput} onChange={e => setRoleNameInput(e.target.value)} />
+                </div>
+                <div style={{ marginTop: '8px', padding: '10px 14px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-secondary)' }}>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-tertiary)', marginBottom: '4px' }}>SQL 预览</div>
+                  <code style={{ fontSize: '0.78rem', color: 'var(--primary-600)', fontFamily: "'JetBrains Mono', monospace" }}>
+                    {roleAction === 'grant_role' ? 'GRANT' : 'REVOKE'} &apos;{roleNameInput || '...'}&apos; {roleAction === 'grant_role' ? 'TO' : 'FROM'} {showRoleAssign}
+                  </code>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button className="btn btn-secondary" onClick={() => setShowRoleAssign(null)}>取消</button>
+                <button className="btn btn-primary" onClick={handleRoleAssign} disabled={!roleNameInput}>
+                  <UserPlus size={16} /> {roleAction === 'grant_role' ? '授予' : '撤销'}
                 </button>
               </div>
             </div>

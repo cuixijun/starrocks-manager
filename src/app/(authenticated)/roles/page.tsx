@@ -4,7 +4,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useSession } from '@/hooks/useSession';
 import {
   ShieldCheck, Plus, Trash2, RefreshCw, Search, X,
-  UserPlus, UserMinus, ChevronUp, ChevronDown, ChevronsUpDown, Clock
+  UserPlus, UserMinus, ChevronUp, ChevronDown, ChevronsUpDown, Clock,
+  Shield, Key, ChevronRight,
 } from 'lucide-react';
 
 type SortDir = 'asc' | 'desc';
@@ -33,6 +34,15 @@ export default function RolesPage() {
   const [lastRefreshed, setLastRefreshed] = useState<string | null>(null);
   const [fromCache, setFromCache] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  // Grants per role
+  const [roleGrants, setRoleGrants] = useState<Record<string, string[]>>({});
+  const [expandedGrants, setExpandedGrants] = useState<Set<string>>(new Set());
+  // Grant privilege modal
+  const [showPrivGrant, setShowPrivGrant] = useState<string | null>(null);
+  const [privAction, setPrivAction] = useState<'grant_privilege' | 'revoke_privilege'>('grant_privilege');
+  const [privType, setPrivType] = useState('SELECT');
+  const [privObjType, setPrivObjType] = useState('TABLE');
+  const [privObjName, setPrivObjName] = useState('');
 
   const fetchRoles = useCallback(async (forceRefresh = false) => {
     if (!session) return;
@@ -60,6 +70,23 @@ export default function RolesPage() {
   }, [session]);
 
   useEffect(() => { if (session) fetchRoles(); }, [session, fetchRoles]);
+
+  // Fetch grants for each role after roles load
+  useEffect(() => {
+    if (!session || roles.length === 0) return;
+    const fetchGrants = async () => {
+      const results: Record<string, string[]> = {};
+      for (const role of roles) {
+        try {
+          const res = await fetch(`/api/grants?sessionId=${encodeURIComponent(session.sessionId)}&target=ROLE '${role}'`);
+          const data = await res.json();
+          results[role] = data.grants || [];
+        } catch { results[role] = []; }
+      }
+      setRoleGrants(results);
+    };
+    fetchGrants();
+  }, [session, roles]);
 
   useEffect(() => {
     if (success) { const t = setTimeout(() => setSuccess(''), 3000); return () => clearTimeout(t); }
@@ -127,6 +154,47 @@ export default function RolesPage() {
   const systemCount = filtered.filter(n => SYSTEM_ROLES.has(n)).length;
   const customCount = filtered.length - systemCount;
 
+  function toggleGrants(role: string) {
+    setExpandedGrants(prev => {
+      const next = new Set(prev);
+      if (next.has(role)) next.delete(role); else next.add(role);
+      return next;
+    });
+  }
+
+  function parseGrantLabel(g: string) {
+    const roleMatch = g.match(/GRANT\s+['`]?([^'`\s,]+)['`]?\s+TO/i);
+    const privMatch = g.match(/GRANT\s+([A-Z_,\s]+?)\s+ON/i);
+    if (roleMatch) return { type: 'role', label: roleMatch[1] };
+    if (privMatch) return { type: 'priv', label: privMatch[1].trim().split(',')[0].trim() + (privMatch[1].includes(',') ? '...' : '') };
+    return { type: 'other', label: g.slice(0, 40) };
+  }
+
+  async function handlePrivGrant() {
+    if (!session || !showPrivGrant || !privObjName) return;
+    setError('');
+    try {
+      const res = await fetch('/api/grants', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: session.sessionId,
+          action: privAction,
+          grantee: `ROLE '${showPrivGrant}'`,
+          privilege: privType,
+          objectType: privObjType,
+          objectName: privObjName,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) setError(data.error);
+      else {
+        setSuccess(`${privAction === 'grant_privilege' ? '授权' : '撤销'}成功`);
+        setShowPrivGrant(null);
+        fetchRoles(true);
+      }
+    } catch (err) { setError(String(err)); }
+  }
+
   return (
     <>
       <div className="page-header">
@@ -189,7 +257,8 @@ export default function RolesPage() {
                     </span>
                   </th>
                   <th>类型</th>
-                  <th style={{ textAlign: 'center', width: '80px' }}>操作</th>
+                  <th>权限授权</th>
+                  <th style={{ textAlign: 'center', width: '100px' }}>操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -223,19 +292,60 @@ export default function RolesPage() {
                           {isSystem ? '● 系统角色' : '● 自定义角色'}
                         </span>
                       </td>
-                      <td style={{ textAlign: 'center' }}>
-                        {!isSystem ? (
-                          <button
-                            className="btn btn-ghost btn-icon"
-                            style={{ color: 'var(--danger-500)' }}
-                            onClick={() => handleDeleteRole(name)}
-                            title="删除角色"
-                          >
-                            <Trash2 size={15} />
+                      {/* Grants column */}
+                      <td>
+                        {(() => {
+                          const grants = roleGrants[name] || [];
+                          if (grants.length === 0) return <span style={{ color: 'var(--text-tertiary)', fontSize: '0.78rem' }}>无权限</span>;
+                          const parsed = grants.map(parseGrantLabel);
+                          const isExpanded = expandedGrants.has(name);
+                          return (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                {(isExpanded ? parsed : parsed.slice(0, 3)).map((g, i) => (
+                                  <span key={i} style={{
+                                    display: 'inline-flex', alignItems: 'center', gap: '4px',
+                                    padding: '2px 8px', borderRadius: '999px', fontSize: '0.72rem', fontWeight: 500,
+                                    backgroundColor: g.type === 'role' ? 'rgba(22,163,74,0.08)' : 'rgba(37,99,235,0.08)',
+                                    color: g.type === 'role' ? 'var(--success-600)' : 'var(--primary-600)',
+                                    border: `1px solid ${g.type === 'role' ? 'rgba(22,163,74,0.2)' : 'rgba(37,99,235,0.2)'}`,
+                                    maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                  }}>
+                                    {g.type === 'role' ? <ShieldCheck size={10} /> : <Key size={10} />}
+                                    {g.label}
+                                  </span>
+                                ))}
+                                {!isExpanded && parsed.length > 3 && (
+                                  <button onClick={() => toggleGrants(name)} style={{
+                                    display: 'inline-flex', alignItems: 'center', gap: '3px',
+                                    padding: '2px 8px', borderRadius: '999px', fontSize: '0.72rem', fontWeight: 500,
+                                    backgroundColor: 'var(--bg-secondary)', color: 'var(--text-secondary)',
+                                    border: '1px solid var(--border-secondary)', cursor: 'pointer',
+                                  }}>
+                                    <ChevronRight size={10} /> +{parsed.length - 3}
+                                  </button>
+                                )}
+                              </div>
+                              {isExpanded && (
+                                <button onClick={() => toggleGrants(name)} style={{ fontSize: '0.72rem', color: 'var(--primary-600)', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: '0' }}>
+                                  ▲ 收起
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: '2px', justifyContent: 'center' }}>
+                          <button className="btn btn-ghost btn-icon" style={{ color: 'var(--primary-600)' }} onClick={() => setShowPrivGrant(name)} title="授权">
+                            <Shield size={14} />
                           </button>
-                        ) : (
-                          <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>—</span>
-                        )}
+                          {!isSystem && (
+                            <button className="btn btn-ghost btn-icon" style={{ color: 'var(--danger-500)' }} onClick={() => handleDeleteRole(name)} title="删除角色">
+                              <Trash2 size={14} />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -320,6 +430,76 @@ export default function RolesPage() {
                 <button className="btn btn-primary" onClick={handleGrantRevoke} disabled={!grantForm.roleName || !grantForm.userName}>
                   {grantForm.action === 'grant' ? <UserPlus size={16} /> : <UserMinus size={16} />}
                   {grantForm.action === 'grant' ? '授予' : '撤销'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Grant Privilege to Role Modal */}
+        {showPrivGrant && (
+          <div className="modal-overlay" onClick={() => setShowPrivGrant(null)}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '560px' }}>
+              <div className="modal-header">
+                <div className="modal-title">授权 / 撤销权限 — 角色 {showPrivGrant}</div>
+                <button className="btn-ghost btn-icon" onClick={() => setShowPrivGrant(null)}><X size={18} /></button>
+              </div>
+              <div className="modal-body">
+                <div className="form-group">
+                  <label className="form-label">操作</label>
+                  <select className="input" value={privAction} onChange={e => setPrivAction(e.target.value as 'grant_privilege' | 'revoke_privilege')}>
+                    <option value="grant_privilege">授予 (GRANT)</option>
+                    <option value="revoke_privilege">撤销 (REVOKE)</option>
+                  </select>
+                </div>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">权限类型</label>
+                    <select className="input" value={privType} onChange={e => setPrivType(e.target.value)}>
+                      <option value="ALL">ALL (全部)</option>
+                      <option value="SELECT">SELECT</option>
+                      <option value="INSERT">INSERT</option>
+                      <option value="UPDATE">UPDATE</option>
+                      <option value="DELETE">DELETE</option>
+                      <option value="ALTER">ALTER</option>
+                      <option value="DROP">DROP</option>
+                      <option value="CREATE TABLE">CREATE TABLE</option>
+                      <option value="CREATE VIEW">CREATE VIEW</option>
+                      <option value="CREATE MATERIALIZED VIEW">CREATE MV</option>
+                      <option value="USAGE">USAGE</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">对象类型</label>
+                    <select className="input" value={privObjType} onChange={e => setPrivObjType(e.target.value)}>
+                      <option value="TABLE">TABLE</option>
+                      <option value="ALL TABLES IN DATABASE">ALL TABLES IN DATABASE</option>
+                      <option value="ALL TABLES IN ALL DATABASES">ALL TABLES IN ALL DATABASES</option>
+                      <option value="DATABASE">DATABASE</option>
+                      <option value="ALL DATABASES">ALL DATABASES</option>
+                      <option value="CATALOG">CATALOG</option>
+                      <option value="ALL CATALOGS">ALL CATALOGS</option>
+                      <option value="MATERIALIZED VIEW">MATERIALIZED VIEW</option>
+                      <option value="FUNCTION">FUNCTION</option>
+                      <option value="RESOURCE GROUP">RESOURCE GROUP</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">对象名 <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>（ALL 类型填空即可）</span></label>
+                  <input className="input" placeholder="database.table" value={privObjName} onChange={e => setPrivObjName(e.target.value)} />
+                </div>
+                <div style={{ marginTop: '8px', padding: '10px 14px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-secondary)' }}>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-tertiary)', marginBottom: '4px' }}>SQL 预览</div>
+                  <code style={{ fontSize: '0.78rem', color: 'var(--primary-600)', fontFamily: "'JetBrains Mono', monospace", wordBreak: 'break-all' }}>
+                    {privAction === 'grant_privilege' ? 'GRANT' : 'REVOKE'} {privType} ON {privObjType} {privObjName || '...'} {privAction === 'grant_privilege' ? 'TO' : 'FROM'} ROLE &apos;{showPrivGrant}&apos;
+                  </code>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button className="btn btn-secondary" onClick={() => setShowPrivGrant(null)}>取消</button>
+                <button className="btn btn-primary" onClick={handlePrivGrant} disabled={!privObjName && !privObjType.startsWith('ALL')}>
+                  <Shield size={16} /> {privAction === 'grant_privilege' ? '授权' : '撤销'}
                 </button>
               </div>
             </div>
