@@ -1,11 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/db';
+import { getBlobCache, setBlobCache } from '@/lib/local-db';
 
 export async function GET(request: NextRequest) {
   try {
     const sessionId = request.nextUrl.searchParams.get('sessionId');
+    const refresh = request.nextUrl.searchParams.get('refresh') === 'true';
+
     if (!sessionId) {
       return NextResponse.json({ error: 'Session ID required' }, { status: 400 });
+    }
+
+    if (!refresh) {
+      const cached = getBlobCache('broker_load_cache', sessionId);
+      if (cached) {
+        return NextResponse.json({ loads: cached.data, cachedAt: cached.cachedAt, fromCache: true });
+      }
     }
 
     const dbResult = await executeQuery(sessionId, 'SHOW DATABASES');
@@ -32,7 +42,10 @@ export async function GET(request: NextRequest) {
       return tb.localeCompare(ta);
     });
 
-    return NextResponse.json({ loads: allLoads });
+    let cachedAt: string | undefined;
+    try { cachedAt = setBlobCache('broker_load_cache', sessionId, allLoads); } catch { /* non-fatal */ }
+
+    return NextResponse.json({ loads: allLoads, cachedAt, fromCache: false });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : String(err) },

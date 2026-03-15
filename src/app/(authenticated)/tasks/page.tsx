@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSession } from '@/hooks/useSession';
 import { useDataFetch } from '@/hooks/useDataFetch';
+import { usePagination } from '@/hooks/usePagination';
 import { str } from '@/lib/utils';
 import { PageHeader, StatusBadge, DatabaseBadge, SearchToolbar, DataTable, ErrorBanner, SuccessToast } from '@/components/ui';
 import { Trash2, ListChecks, ChevronDown, ChevronRight } from 'lucide-react';
@@ -15,7 +16,7 @@ export default function TasksPage() {
 
   const { data, loading, refreshing, error, success, setError, setSuccess, refresh } = useDataFetch(
     {
-      url: sid => `/api/tasks?sessionId=${encodeURIComponent(sid)}&type=all`,
+      url: (sid, isRefresh) => `/api/tasks?sessionId=${encodeURIComponent(sid)}&type=all${isRefresh ? '&refresh=true' : ''}`,
       extract: json => ({
         tasks: (json.tasks || []) as Record<string, unknown>[],
         runs: (json.runs || []) as Record<string, unknown>[],
@@ -24,6 +25,23 @@ export default function TasksPage() {
     { tasks: [] as Record<string, unknown>[], runs: [] as Record<string, unknown>[] }
   );
   const { tasks, runs } = data;
+
+  const filteredTasks = tasks.filter(t => {
+    const name = str(t['TASK_NAME'] || t['TaskName'] || '').toLowerCase();
+    const db = str(t['DATABASE'] || t['DbName'] || '').toLowerCase();
+    return name.includes(search.toLowerCase()) || db.includes(search.toLowerCase());
+  });
+
+  const filteredRuns = runs.filter(r => {
+    const name = str(r['TASK_NAME'] || r['TaskName'] || '').toLowerCase();
+    const state = str(r['STATE'] || r['State'] || '').toLowerCase();
+    return name.includes(search.toLowerCase()) || state.includes(search.toLowerCase());
+  });
+
+  const pgTasks = usePagination(filteredTasks);
+  const pgRuns = usePagination(filteredRuns);
+
+  useEffect(() => { pgTasks.resetPage(); pgRuns.resetPage(); }, [search]);
 
   async function handleDrop(name: string) {
     if (!session || !confirm(`确定要删除任务 ${name} 吗？`)) return;
@@ -42,17 +60,7 @@ export default function TasksPage() {
     return runs.filter(r => str(r['TASK_NAME']).includes(taskName) || str(r['TaskName']).includes(taskName));
   }
 
-  const filteredTasks = tasks.filter(t => {
-    const name = str(t['TASK_NAME'] || t['TaskName'] || '').toLowerCase();
-    const db = str(t['DATABASE'] || t['DbName'] || '').toLowerCase();
-    return name.includes(search.toLowerCase()) || db.includes(search.toLowerCase());
-  });
-
-  const filteredRuns = runs.filter(r => {
-    const name = str(r['TASK_NAME'] || r['TaskName'] || '').toLowerCase();
-    const state = str(r['STATE'] || r['State'] || '').toLowerCase();
-    return name.includes(search.toLowerCase()) || state.includes(search.toLowerCase());
-  });
+  const activePg = tab === 'tasks' ? pgTasks : pgRuns;
 
   return (
     <>
@@ -81,8 +89,8 @@ export default function TasksPage() {
         {tab === 'tasks' ? (
           <DataTable loading={loading} empty={filteredTasks.length === 0} emptyIcon={<ListChecks size={48} />}
             emptyText={search ? '没有匹配的任务' : '暂无定时任务'}
-            footerLeft={<>共 <strong style={{ color: 'var(--text-secondary)' }}>{filteredTasks.length}</strong> 个任务</>}
-            footerRight="information_schema.tasks">
+            footerRight="information_schema.tasks"
+            pagination={{ page: pgTasks.page, pageSize: pgTasks.pageSize, totalPages: pgTasks.totalPages, totalItems: pgTasks.totalItems, onPageChange: pgTasks.setPage, onPageSizeChange: pgTasks.setPageSize }}>
             <thead>
               <tr>
                 <th style={{ width: '44px', textAlign: 'center' }}>#</th>
@@ -97,7 +105,8 @@ export default function TasksPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredTasks.map((t, idx) => {
+              {pgTasks.paginatedData.map((t, idx) => {
+                const globalIdx = (pgTasks.page - 1) * pgTasks.pageSize + idx;
                 const name = str(t['TASK_NAME'] || t['TaskName'] || '');
                 const db = str(t['DATABASE'] || t['DbName'] || '');
                 const schedule = str(t['SCHEDULE'] || t['Schedule'] || '');
@@ -108,9 +117,9 @@ export default function TasksPage() {
                 const taskRuns = getRunsForTask(name);
 
                 return (
-                  <React.Fragment key={`${name}.${idx}`}>
+                  <React.Fragment key={`${name}.${globalIdx}`}>
                     <tr>
-                      <td style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.76rem' }}>{idx + 1}</td>
+                      <td style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.76rem' }}>{globalIdx + 1}</td>
                       <td>
                         {taskRuns.length > 0 && (
                           <button onClick={() => setExpandedTask(isExpanded ? null : name)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: '2px' }}>
@@ -161,8 +170,8 @@ export default function TasksPage() {
         ) : (
           <DataTable loading={loading} empty={filteredRuns.length === 0} emptyIcon={<ListChecks size={48} />}
             emptyText={search ? '没有匹配的记录' : '暂无运行记录'}
-            footerLeft={<>共 <strong style={{ color: 'var(--text-secondary)' }}>{filteredRuns.length}</strong> 条记录</>}
-            footerRight="information_schema.task_runs">
+            footerRight="information_schema.task_runs"
+            pagination={{ page: pgRuns.page, pageSize: pgRuns.pageSize, totalPages: pgRuns.totalPages, totalItems: pgRuns.totalItems, onPageChange: pgRuns.setPage, onPageSizeChange: pgRuns.setPageSize }}>
             <thead>
               <tr>
                 <th style={{ width: '44px', textAlign: 'center' }}>#</th>
@@ -176,7 +185,8 @@ export default function TasksPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredRuns.map((r, idx) => {
+              {pgRuns.paginatedData.map((r, idx) => {
+                const globalIdx = (pgRuns.page - 1) * pgRuns.pageSize + idx;
                 const name = str(r['TASK_NAME'] || r['TaskName'] || '');
                 const state = str(r['STATE'] || r['State'] || '');
                 const start = str(r['CREATE_TIME'] || r['CreateTime'] || '');
@@ -186,8 +196,8 @@ export default function TasksPage() {
                 const errorMsg = str(r['ERROR_MESSAGE'] || r['ErrorMessage'] || '');
 
                 return (
-                  <tr key={idx}>
-                    <td style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.76rem' }}>{idx + 1}</td>
+                  <tr key={globalIdx}>
+                    <td style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.76rem' }}>{globalIdx + 1}</td>
                     <td style={{ fontWeight: 600, fontSize: '0.82rem' }}>{name}</td>
                     <td><StatusBadge status={state} /></td>
                     <td style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{start}</td>

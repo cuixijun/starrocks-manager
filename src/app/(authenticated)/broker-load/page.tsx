@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSession } from '@/hooks/useSession';
 import { useDataFetch } from '@/hooks/useDataFetch';
+import { usePagination } from '@/hooks/usePagination';
 import { str } from '@/lib/utils';
 import { PageHeader, StatusBadge, DatabaseBadge, SearchToolbar, DataTable, ErrorBanner, SuccessToast } from '@/components/ui';
 import { HardDrive, XCircle, Database } from 'lucide-react';
@@ -13,9 +14,24 @@ export default function BrokerLoadPage() {
   const [stateFilter, setStateFilter] = useState('all');
 
   const { data: loads, loading, refreshing, error, success, setError, setSuccess, refresh } = useDataFetch(
-    { url: sid => `/api/broker-load?sessionId=${encodeURIComponent(sid)}`, extract: json => (json.loads || []) as Record<string, unknown>[] },
+    { url: (sid, isRefresh) => `/api/broker-load?sessionId=${encodeURIComponent(sid)}${isRefresh ? '&refresh=true' : ''}`, extract: json => (json.loads || []) as Record<string, unknown>[] },
     [] as Record<string, unknown>[]
   );
+
+  const allStates = Array.from(new Set(loads.map(l => str(l['State'])))).filter(Boolean).sort();
+
+  const filtered = loads.filter(l => {
+    const label = str(l['Label']).toLowerCase();
+    const db = str(l['_db']).toLowerCase();
+    const matchSearch = label.includes(search.toLowerCase()) || db.includes(search.toLowerCase());
+    const matchState = stateFilter === 'all' || str(l['State']) === stateFilter;
+    return matchSearch && matchState;
+  });
+
+  const pg = usePagination(filtered);
+
+  // Reset page when filters change
+  useEffect(() => { pg.resetPage(); }, [search, stateFilter]);
 
   async function handleCancel(db: string, label: string) {
     if (!session || !confirm(`确定要取消导入任务 ${label} 吗？`)) return;
@@ -30,16 +46,6 @@ export default function BrokerLoadPage() {
     } catch (err) { setError(String(err)); }
   }
 
-  const allStates = Array.from(new Set(loads.map(l => str(l['State'])))).filter(Boolean).sort();
-
-  const filtered = loads.filter(l => {
-    const label = str(l['Label']).toLowerCase();
-    const db = str(l['_db']).toLowerCase();
-    const matchSearch = label.includes(search.toLowerCase()) || db.includes(search.toLowerCase());
-    const matchState = stateFilter === 'all' || str(l['State']) === stateFilter;
-    return matchSearch && matchState;
-  });
-
   return (
     <>
       <PageHeader title="Broker Load 管理" description={`管理批量导入任务 · ${loads.length} 条记录`} onRefresh={() => refresh(true)} refreshing={refreshing} loading={loading} />
@@ -53,7 +59,8 @@ export default function BrokerLoadPage() {
         <DataTable loading={loading} empty={filtered.length === 0} emptyIcon={<HardDrive size={48} />}
           emptyText={search || stateFilter !== 'all' ? '没有匹配的任务' : '暂无 Broker Load 任务'}
           footerLeft={<>共 <strong style={{ color: 'var(--text-secondary)' }}>{filtered.length}</strong> 条</>}
-          footerRight="SHOW LOAD">
+          footerRight="SHOW LOAD"
+          pagination={{ page: pg.page, pageSize: pg.pageSize, totalPages: pg.totalPages, totalItems: pg.totalItems, onPageChange: pg.setPage, onPageSizeChange: pg.setPageSize }}>
           <thead>
             <tr>
               <th style={{ width: '44px', textAlign: 'center' }}>#</th>
@@ -69,7 +76,8 @@ export default function BrokerLoadPage() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((l, idx) => {
+            {pg.paginatedData.map((l, idx) => {
+              const globalIdx = (pg.page - 1) * pg.pageSize + idx;
               const label = str(l['Label']);
               const db = str(l['_db']);
               const state = str(l['State']);
@@ -81,8 +89,8 @@ export default function BrokerLoadPage() {
               const canCancel = ['PENDING', 'ETL', 'LOADING'].includes(state);
 
               return (
-                <tr key={`${db}.${label}.${idx}`}>
-                  <td style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.76rem' }}>{idx + 1}</td>
+                <tr key={`${db}.${label}.${globalIdx}`}>
+                  <td style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.76rem' }}>{globalIdx + 1}</td>
                   <td>
                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                       <div style={{ width: '28px', height: '28px', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(37,99,235,0.08)', color: 'var(--primary-600)', border: '1px solid rgba(37,99,235,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>

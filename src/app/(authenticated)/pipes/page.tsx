@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSession } from '@/hooks/useSession';
 import { useDataFetch } from '@/hooks/useDataFetch';
+import { usePagination } from '@/hooks/usePagination';
 import { str } from '@/lib/utils';
 import { PageHeader, StatusBadge, DatabaseBadge, SearchToolbar, DataTable, ErrorBanner, SuccessToast } from '@/components/ui';
 import { Pause, Play, Trash2, Database, GitBranch } from 'lucide-react';
@@ -12,9 +13,18 @@ export default function PipesPage() {
   const [search, setSearch] = useState('');
 
   const { data: pipes, loading, refreshing, error, success, setError, setSuccess, refresh } = useDataFetch(
-    { url: sid => `/api/pipes?sessionId=${encodeURIComponent(sid)}`, extract: json => (json.pipes || []) as Record<string, unknown>[] },
+    { url: (sid, isRefresh) => `/api/pipes?sessionId=${encodeURIComponent(sid)}${isRefresh ? '&refresh=true' : ''}`, extract: json => (json.pipes || []) as Record<string, unknown>[] },
     [] as Record<string, unknown>[]
   );
+
+  const filtered = pipes.filter(p => {
+    const name = str(p['PIPE_NAME'] || p['Name'] || p['name'] || '').toLowerCase();
+    const db = str(p['_db']).toLowerCase();
+    return name.includes(search.toLowerCase()) || db.includes(search.toLowerCase());
+  });
+
+  const pg = usePagination(filtered);
+  useEffect(() => { pg.resetPage(); }, [search]);
 
   async function handleAction(action: string, db: string, name: string) {
     if (!session) return;
@@ -31,12 +41,6 @@ export default function PipesPage() {
     } catch (err) { setError(String(err)); }
   }
 
-  const filtered = pipes.filter(p => {
-    const name = str(p['PIPE_NAME'] || p['Name'] || p['name'] || '').toLowerCase();
-    const db = str(p['_db']).toLowerCase();
-    return name.includes(search.toLowerCase()) || db.includes(search.toLowerCase());
-  });
-
   return (
     <>
       <PageHeader title="Pipes 管理" description={`管理持续导入 Pipe · ${pipes.length} 个 Pipe`} onRefresh={() => refresh(true)} refreshing={refreshing} loading={loading} />
@@ -47,7 +51,8 @@ export default function PipesPage() {
         <DataTable loading={loading} empty={filtered.length === 0} emptyIcon={<GitBranch size={48} />}
           emptyText={search ? '没有匹配的 Pipe' : '暂无 Pipe'}
           footerLeft={<>共 <strong style={{ color: 'var(--text-secondary)' }}>{filtered.length}</strong> 个 Pipe</>}
-          footerRight="SHOW PIPES">
+          footerRight="SHOW PIPES"
+          pagination={{ page: pg.page, pageSize: pg.pageSize, totalPages: pg.totalPages, totalItems: pg.totalItems, onPageChange: pg.setPage, onPageSizeChange: pg.setPageSize }}>
           <thead>
             <tr>
               <th style={{ width: '44px', textAlign: 'center' }}>#</th>
@@ -62,7 +67,8 @@ export default function PipesPage() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((p, idx) => {
+            {pg.paginatedData.map((p, idx) => {
+              const globalIdx = (pg.page - 1) * pg.pageSize + idx;
               const name = str(p['PIPE_NAME'] || p['Name'] || p['name'] || '');
               const db = str(p['_db']);
               const state = str(p['STATE'] || p['State'] || p['state'] || '');
@@ -72,8 +78,8 @@ export default function PipesPage() {
               const created = str(p['CREATED_TIME'] || p['CreatedTime'] || p['CreateTime'] || '');
 
               return (
-                <tr key={`${db}.${name}.${idx}`}>
-                  <td style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.76rem' }}>{idx + 1}</td>
+                <tr key={`${db}.${name}.${globalIdx}`}>
+                  <td style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.76rem' }}>{globalIdx + 1}</td>
                   <td>
                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                       <div style={{ width: '28px', height: '28px', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(139,92,246,0.08)', color: 'var(--accent-600)', border: '1px solid rgba(139,92,246,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>

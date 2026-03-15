@@ -1,12 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/db';
+import { getBlobCache, setBlobCache } from '@/lib/local-db';
 
 export async function GET(request: NextRequest) {
   try {
     const sessionId = request.nextUrl.searchParams.get('sessionId');
-    const type = request.nextUrl.searchParams.get('type') || 'tasks'; // 'tasks', 'task_runs', or 'all'
+    const type = request.nextUrl.searchParams.get('type') || 'tasks';
+    const refresh = request.nextUrl.searchParams.get('refresh') === 'true';
+
     if (!sessionId) {
       return NextResponse.json({ error: 'Session ID required' }, { status: 400 });
+    }
+
+    if (!refresh && type === 'all') {
+      const cached = getBlobCache('tasks_cache', sessionId);
+      if (cached) {
+        return NextResponse.json({ ...(cached.data as object), cachedAt: cached.cachedAt, fromCache: true });
+      }
     }
 
     if (type === 'all') {
@@ -14,7 +24,10 @@ export async function GET(request: NextRequest) {
         executeQuery(sessionId, `SELECT * FROM information_schema.tasks ORDER BY CREATE_TIME DESC`),
         executeQuery(sessionId, `SELECT * FROM information_schema.task_runs ORDER BY CREATE_TIME DESC LIMIT 200`),
       ]);
-      return NextResponse.json({ tasks: tasksResult.rows, runs: runsResult.rows });
+      const payload = { tasks: tasksResult.rows, runs: runsResult.rows };
+      let cachedAt: string | undefined;
+      try { cachedAt = setBlobCache('tasks_cache', sessionId, payload); } catch { /* non-fatal */ }
+      return NextResponse.json({ ...payload, cachedAt, fromCache: false });
     }
 
     if (type === 'task_runs') {

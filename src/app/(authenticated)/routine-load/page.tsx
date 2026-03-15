@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSession } from '@/hooks/useSession';
 import { useDataFetch } from '@/hooks/useDataFetch';
+import { usePagination } from '@/hooks/usePagination';
 import { str } from '@/lib/utils';
 import { PageHeader, StatusBadge, DatabaseBadge, SearchToolbar, DataTable, ErrorBanner, SuccessToast } from '@/components/ui';
 import { Pause, Play, Square, Database, Radio, AlertTriangle } from 'lucide-react';
@@ -15,9 +16,22 @@ export default function RoutineLoadPage() {
   const [stateFilter, setStateFilter] = useState('all');
 
   const { data: jobs, loading, refreshing, error, success, setError, setSuccess, refresh } = useDataFetch(
-    { url: sid => `/api/routine-load?sessionId=${encodeURIComponent(sid)}`, extract: json => (json.jobs || []) as Record<string, unknown>[] },
+    { url: (sid, isRefresh) => `/api/routine-load?sessionId=${encodeURIComponent(sid)}${isRefresh ? '&refresh=true' : ''}`, extract: json => (json.jobs || []) as Record<string, unknown>[] },
     [] as Record<string, unknown>[]
   );
+
+  const allStates = Array.from(new Set(jobs.map(j => str(j['State'])))).filter(Boolean).sort();
+
+  const filtered = jobs.filter(j => {
+    const name = str(j['Name']).toLowerCase();
+    const db = str(j['_db']).toLowerCase();
+    const matchSearch = name.includes(search.toLowerCase()) || db.includes(search.toLowerCase());
+    const matchState = stateFilter === 'all' || str(j['State']) === stateFilter;
+    return matchSearch && matchState;
+  });
+
+  const pg = usePagination(filtered);
+  useEffect(() => { pg.resetPage(); }, [search, stateFilter]);
 
   async function handleAction(action: string, db: string, name: string) {
     if (!session) return;
@@ -34,16 +48,6 @@ export default function RoutineLoadPage() {
     } catch (err) { setError(String(err)); }
   }
 
-  const allStates = Array.from(new Set(jobs.map(j => str(j['State'])))).filter(Boolean).sort();
-
-  const filtered = jobs.filter(j => {
-    const name = str(j['Name']).toLowerCase();
-    const db = str(j['_db']).toLowerCase();
-    const matchSearch = name.includes(search.toLowerCase()) || db.includes(search.toLowerCase());
-    const matchState = stateFilter === 'all' || str(j['State']) === stateFilter;
-    return matchSearch && matchState;
-  });
-
   return (
     <>
       <PageHeader title="Routine Load 管理" description={`管理 Kafka 持续导入任务 · ${jobs.length} 个任务`} onRefresh={() => refresh(true)} refreshing={refreshing} loading={loading} />
@@ -56,7 +60,8 @@ export default function RoutineLoadPage() {
         <DataTable loading={loading} empty={filtered.length === 0} emptyIcon={<Radio size={48} />}
           emptyText={search || stateFilter !== 'all' ? '没有匹配的任务' : '暂无 Routine Load 任务'}
           footerLeft={<>共 <strong style={{ color: 'var(--text-secondary)' }}>{filtered.length}</strong> 个任务</>}
-          footerRight="SHOW ALL ROUTINE LOAD">
+          footerRight="SHOW ALL ROUTINE LOAD"
+          pagination={{ page: pg.page, pageSize: pg.pageSize, totalPages: pg.totalPages, totalItems: pg.totalItems, onPageChange: pg.setPage, onPageSizeChange: pg.setPageSize }}>
           <thead>
             <tr>
               <th style={{ width: '44px', textAlign: 'center' }}>#</th>
@@ -72,7 +77,8 @@ export default function RoutineLoadPage() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((j, idx) => {
+            {pg.paginatedData.map((j, idx) => {
+              const globalIdx = (pg.page - 1) * pg.pageSize + idx;
               const name = str(j['Name']);
               const db = str(j['_db']);
               const table = str(j['TableName']);
@@ -83,8 +89,8 @@ export default function RoutineLoadPage() {
               const loadedRows = str(j['LoadedRows'] || j['Statistics'] || '');
 
               return (
-                <tr key={`${db}.${name}.${idx}`}>
-                  <td style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.76rem' }}>{idx + 1}</td>
+                <tr key={`${db}.${name}.${globalIdx}`}>
+                  <td style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.76rem' }}>{globalIdx + 1}</td>
                   <td>
                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                       <div style={{ width: '28px', height: '28px', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(22,163,74,0.08)', color: 'var(--success-600)', border: '1px solid rgba(22,163,74,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>

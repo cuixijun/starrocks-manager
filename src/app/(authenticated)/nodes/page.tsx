@@ -56,7 +56,7 @@ export default function NodesPage() {
 
   const { data, loading, refreshing, error, success, setError, setSuccess, refresh } = useDataFetch(
     {
-      url: sid => `/api/nodes?sessionId=${encodeURIComponent(sid)}`,
+      url: (sid, isRefresh) => `/api/nodes?sessionId=${encodeURIComponent(sid)}${isRefresh ? '&refresh=true' : ''}`,
       extract: json => ({ frontends: (json.frontends || []) as Record<string, unknown>[], computeNodes: (json.computeNodes || []) as Record<string, unknown>[], backends: (json.backends || []) as Record<string, unknown>[] }),
     },
     { frontends: [], computeNodes: [], backends: [] } as NodeData

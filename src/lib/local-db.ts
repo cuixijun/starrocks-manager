@@ -98,6 +98,41 @@ export function getLocalDb(): Database.Database {
       data          TEXT NOT NULL,
       cached_at     DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    -- Broker Load cache
+    CREATE TABLE IF NOT EXISTS broker_load_cache (
+      connection_id TEXT PRIMARY KEY,
+      data          TEXT NOT NULL,
+      cached_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Routine Load cache
+    CREATE TABLE IF NOT EXISTS routine_load_cache (
+      connection_id TEXT PRIMARY KEY,
+      data          TEXT NOT NULL,
+      cached_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Pipes cache
+    CREATE TABLE IF NOT EXISTS pipes_cache (
+      connection_id TEXT PRIMARY KEY,
+      data          TEXT NOT NULL,
+      cached_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Tasks cache
+    CREATE TABLE IF NOT EXISTS tasks_cache (
+      connection_id TEXT PRIMARY KEY,
+      data          TEXT NOT NULL,
+      cached_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Nodes cache
+    CREATE TABLE IF NOT EXISTS nodes_cache (
+      connection_id TEXT PRIMARY KEY,
+      data          TEXT NOT NULL,
+      cached_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   return db;
@@ -241,7 +276,7 @@ interface BlobCacheRow {
   cached_at: string;
 }
 
-type CacheTable = 'users_cache' | 'roles_cache' | 'resource_groups_cache' | 'catalogs_cache' | 'functions_cache' | 'variables_cache' | 'materialized_views_cache';
+type CacheTable = 'users_cache' | 'roles_cache' | 'resource_groups_cache' | 'catalogs_cache' | 'functions_cache' | 'variables_cache' | 'materialized_views_cache' | 'broker_load_cache' | 'routine_load_cache' | 'pipes_cache' | 'tasks_cache' | 'nodes_cache';
 
 export function getBlobCache(table: CacheTable, connectionId: string): { data: unknown; cachedAt: string } | null {
   const db = getLocalDb();
