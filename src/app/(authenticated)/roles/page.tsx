@@ -60,7 +60,20 @@ export default function RolesPage() {
         const names: string[] = (data.roles || []).map((r: Record<string, unknown>) =>
           String(r['Name'] || r['name'] || r['Value'] || Object.values(r)[0] || '')
         );
+
+        // Fetch grants for all roles in parallel before rendering
+        const grantResults: Record<string, string[]> = {};
+        await Promise.all(names.map(async (role) => {
+          try {
+            const gRes = await fetch(`/api/grants?sessionId=${encodeURIComponent(session.sessionId)}&target=ROLE '${role}'`);
+            const gData = await gRes.json();
+            grantResults[role] = gData.grants || [];
+          } catch { grantResults[role] = []; }
+        }));
+
         setRoles(names);
+        setRoleGrants(grantResults);
+
         const ts = data.cachedAt
           ? new Date(data.cachedAt).toLocaleString('zh-CN', { hour12: false })
           : new Date().toLocaleString('zh-CN', { hour12: false });
@@ -72,23 +85,6 @@ export default function RolesPage() {
   }, [session]);
 
   useEffect(() => { if (session) fetchRoles(); }, [session, fetchRoles]);
-
-  // Fetch grants for each role after roles load
-  useEffect(() => {
-    if (!session || roles.length === 0) return;
-    const fetchGrants = async () => {
-      const results: Record<string, string[]> = {};
-      for (const role of roles) {
-        try {
-          const res = await fetch(`/api/grants?sessionId=${encodeURIComponent(session.sessionId)}&target=ROLE '${role}'`);
-          const data = await res.json();
-          results[role] = data.grants || [];
-        } catch { results[role] = []; }
-      }
-      setRoleGrants(results);
-    };
-    fetchGrants();
-  }, [session, roles]);
 
   useEffect(() => {
     if (success) { const t = setTimeout(() => setSuccess(''), 3000); return () => clearTimeout(t); }

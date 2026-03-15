@@ -72,7 +72,7 @@ export function Pagination({ page, pageSize, totalPages, totalItems, onPageChang
   }
 
   const btnBase: React.CSSProperties = {
-    padding: '4px 8px', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-sm)',
+    padding: '4px 8px', borderWidth: '1px', borderStyle: 'solid', borderColor: 'var(--border-primary)', borderRadius: 'var(--radius-sm)',
     fontSize: '0.76rem', cursor: 'pointer', backgroundColor: 'var(--bg-primary)', color: 'var(--text-secondary)',
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: '28px', height: '28px',
     transition: 'all 0.15s ease',
