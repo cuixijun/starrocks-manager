@@ -61,7 +61,11 @@ export async function POST(request: NextRequest) {
 
 /**
  * GET /api/grants?sessionId=...&target=USER 'root'@'%'
- * Returns grants for a specific user or role
+ * Returns grants for a specific user or role across ALL catalogs.
+ *
+ * Response:
+ *   grants: string[]         — raw GRANT statement strings (backward‑compat)
+ *   catalogGrants: { grant: string, catalog: string }[]  — tagged with source catalog
  */
 export async function GET(request: NextRequest) {
   try {
@@ -72,11 +76,73 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'sessionId and target required' }, { status: 400 });
     }
 
-    const result = await executeQuery(sessionId, `SHOW GRANTS FOR ${target}`);
-    const rows = result.rows as Record<string, unknown>[];
-    const grants = rows.map(r => Object.values(r).join(' | '));
+    // Helper: extract GRANT statement from a row (last column that starts with "GRANT")
+    function extractGrant(row: Record<string, unknown>): string {
+      const vals = Object.values(row).map(v => String(v ?? ''));
+      // The GRANT column is typically the last or the one starting with "GRANT"
+      for (let i = vals.length - 1; i >= 0; i--) {
+        if (vals[i].startsWith('GRANT ')) return vals[i];
+      }
+      return vals.join(' | ');
+    }
 
-    return NextResponse.json({ grants });
+    const grantMap = new Map<string, string>(); // grant → catalog
+
+    // 1. Query grants on default catalog
+    try {
+      const result = await executeQuery(sessionId, `SHOW GRANTS FOR ${target}`);
+      const rows = result.rows as Record<string, unknown>[];
+      for (const r of rows) {
+        const grant = extractGrant(r);
+        if (!grantMap.has(grant)) grantMap.set(grant, 'default_catalog');
+      }
+    } catch {
+      // ignore
+    }
+
+    // 2. Get all catalogs
+    let catalogs: string[] = [];
+    try {
+      const catResult = await executeQuery(sessionId, 'SHOW CATALOGS');
+      const catRows = catResult.rows as Record<string, unknown>[];
+      catalogs = catRows
+        .map(r => String(Object.values(r)[0] || ''))
+        .filter(name => name && name !== 'default_catalog');
+    } catch {
+      // ignore
+    }
+
+    // 3. For each external catalog, SET CATALOG + SHOW GRANTS
+    for (const catalog of catalogs) {
+      try {
+        await executeQuery(sessionId, `SET CATALOG ${catalog}`);
+        const result = await executeQuery(sessionId, `SHOW GRANTS FOR ${target}`);
+        const rows = result.rows as Record<string, unknown>[];
+        for (const r of rows) {
+          const grant = extractGrant(r);
+          if (!grantMap.has(grant)) grantMap.set(grant, catalog);
+        }
+      } catch {
+        // skip catalogs we can't access
+      }
+    }
+
+    // 4. Switch back to default_catalog
+    try {
+      await executeQuery(sessionId, 'SET CATALOG default_catalog');
+    } catch {
+      // ignore
+    }
+
+    // Build response
+    const grants: string[] = [];
+    const catalogGrants: { grant: string; catalog: string }[] = [];
+    for (const [grant, catalog] of grantMap) {
+      grants.push(grant);
+      catalogGrants.push({ grant, catalog });
+    }
+
+    return NextResponse.json({ grants, catalogGrants });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : String(err) },

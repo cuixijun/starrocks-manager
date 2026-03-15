@@ -5,7 +5,7 @@ import {
   X, Shield, Wrench, Database, Code2, FolderOpen, MoreHorizontal, Key,
   ChevronDown, ChevronRight,
 } from 'lucide-react';
-import { classifyGrants, type CatalogGroup, type CategorisedGroup, type ParsedPrivilege } from '@/utils/grantClassifier';
+import { classifyGrants, type CatalogGroup, type CatalogGrant, type CategorisedGroup, type ParsedPrivilege } from '@/utils/grantClassifier';
 
 const ICON_MAP: Record<string, React.FC<{ size?: number }>> = {
   Shield, Wrench, Database, Code: Code2, FolderOpen, MoreHorizontal,
@@ -14,6 +14,7 @@ const ICON_MAP: Record<string, React.FC<{ size?: number }>> = {
 interface PrivilegeDetailModalProps {
   title: string;
   grants: string[];
+  catalogGrants?: CatalogGrant[];
   onClose: () => void;
 }
 
@@ -170,8 +171,8 @@ function CatalogSectionBlock({ group }: { group: CatalogGroup }) {
 
 /* ── Main Modal ─────────────────────────────────────────────────────── */
 
-export default function PrivilegeDetailModal({ title, grants, onClose }: PrivilegeDetailModalProps) {
-  const catalogGroups = useMemo(() => classifyGrants(grants), [grants]);
+export default function PrivilegeDetailModal({ title, grants, catalogGrants, onClose }: PrivilegeDetailModalProps) {
+  const catalogGroups = useMemo(() => classifyGrants(grants, catalogGrants), [grants, catalogGrants]);
   const totalCount = grants.length;
   const bodyRef = useRef<HTMLDivElement>(null);
 

@@ -136,7 +136,20 @@ function extractCatalog(target: string, category: PrivCategory): string {
 
 // ── Main API ───────────────────────────────────────────────────────────
 
-export function classifyGrants(grants: string[]): CatalogGroup[] {
+export interface CatalogGrant {
+  grant: string;
+  catalog: string;
+}
+
+export function classifyGrants(grants: string[], catalogGrants?: CatalogGrant[]): CatalogGroup[] {
+  // Build a lookup: grant string → catalog name (from API)
+  const catalogLookup = new Map<string, string>();
+  if (catalogGrants) {
+    for (const cg of catalogGrants) {
+      catalogLookup.set(cg.grant, cg.catalog);
+    }
+  }
+
   // Parse all grants
   const parsed: { priv: ParsedPrivilege; category: PrivCategory; catalog: string }[] = [];
 
@@ -146,12 +159,13 @@ export function classifyGrants(grants: string[]): CatalogGroup[] {
       parsed.push({
         priv: { privilege: '', target: '', raw },
         category: 'other',
-        catalog: 'default_catalog',
+        catalog: catalogLookup.get(raw) || 'default_catalog',
       });
       continue;
     }
     const category = classifyPrivilege(priv);
-    const catalog = extractCatalog(priv.target, category);
+    // Use API-provided catalog if available; otherwise infer from target
+    const catalog = catalogLookup.get(raw) || extractCatalog(priv.target, category);
     parsed.push({ priv, category, catalog });
   }
 

@@ -39,8 +39,9 @@ export default function RolesPage() {
   const [refreshing, setRefreshing] = useState(false);
   // Grants per role
   const [roleGrants, setRoleGrants] = useState<Record<string, string[]>>({});
+  const [roleCatalogGrants, setRoleCatalogGrants] = useState<Record<string, { grant: string; catalog: string }[]>>({});
   // Privilege detail modal
-  const [showPrivDetail, setShowPrivDetail] = useState<{ role: string; grants: string[] } | null>(null);
+  const [showPrivDetail, setShowPrivDetail] = useState<{ role: string; grants: string[]; catalogGrants?: { grant: string; catalog: string }[] } | null>(null);
   // Grant privilege modal
   const [showPrivGrant, setShowPrivGrant] = useState<string | null>(null);
   const [privAction, setPrivAction] = useState<'grant_privilege' | 'revoke_privilege'>('grant_privilege');
@@ -65,16 +66,19 @@ export default function RolesPage() {
 
         // Fetch grants for all roles in parallel before rendering
         const grantResults: Record<string, string[]> = {};
+        const catalogGrantResults: Record<string, { grant: string; catalog: string }[]> = {};
         await Promise.all(names.map(async (role) => {
           try {
             const gRes = await fetch(`/api/grants?sessionId=${encodeURIComponent(session.sessionId)}&target=ROLE '${role}'`);
             const gData = await gRes.json();
             grantResults[role] = gData.grants || [];
-          } catch { grantResults[role] = []; }
+            catalogGrantResults[role] = gData.catalogGrants || [];
+          } catch { grantResults[role] = []; catalogGrantResults[role] = []; }
         }));
 
         setRoles(names);
         setRoleGrants(grantResults);
+        setRoleCatalogGrants(catalogGrantResults);
 
         const ts = data.cachedAt
           ? new Date(data.cachedAt).toLocaleString('zh-CN', { hour12: false })
@@ -288,7 +292,7 @@ export default function RolesPage() {
                           if (grants.length === 0) return <span style={{ color: 'var(--text-tertiary)', fontSize: '0.76rem' }}>—</span>;
                           return (
                             <button
-                              onClick={() => setShowPrivDetail({ role: name, grants })}
+                              onClick={() => setShowPrivDetail({ role: name, grants, catalogGrants: roleCatalogGrants[name] })}
                               style={{
                                 display: 'inline-flex', alignItems: 'center', gap: '4px',
                                 padding: '2px 8px', borderRadius: '999px', fontSize: '0.72rem', fontWeight: 500,
@@ -478,6 +482,7 @@ export default function RolesPage() {
           <PrivilegeDetailModal
             title={`角色 ${showPrivDetail.role}`}
             grants={showPrivDetail.grants}
+            catalogGrants={showPrivDetail.catalogGrants}
             onClose={() => setShowPrivDetail(null)}
           />
         )}

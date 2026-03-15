@@ -50,7 +50,7 @@ export default function UsersPage() {
   const [fromCache, setFromCache] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   // Privilege detail modal
-  const [showPrivDetail, setShowPrivDetail] = useState<{ identity: string; grants: string[] } | null>(null);
+  const [showPrivDetail, setShowPrivDetail] = useState<{ identity: string; grants: string[]; catalogGrants?: { grant: string; catalog: string }[] } | null>(null);
 
   // Grant privilege modal
   const [showGrant, setShowGrant] = useState<string | null>(null); // user identity
@@ -388,7 +388,19 @@ export default function UsersPage() {
                           <span style={{ color: 'var(--text-tertiary)', fontSize: '0.76rem' }}>—</span>
                         ) : (
                           <button
-                            onClick={() => setShowPrivDetail({ identity: u.identity, grants: privEntries })}
+                            onClick={async () => {
+                              try {
+                                const gRes = await fetch(`/api/grants?sessionId=${encodeURIComponent(session!.sessionId)}&target=${encodeURIComponent(u.identity)}`);
+                                const gData = await gRes.json();
+                                setShowPrivDetail({
+                                  identity: u.identity,
+                                  grants: gData.grants || privEntries,
+                                  catalogGrants: gData.catalogGrants,
+                                });
+                              } catch {
+                                setShowPrivDetail({ identity: u.identity, grants: privEntries });
+                              }
+                            }}
                             style={{
                               display: 'inline-flex', alignItems: 'center', gap: '4px',
                               padding: '2px 8px', borderRadius: '999px', fontSize: '0.72rem', fontWeight: 500,
@@ -611,6 +623,7 @@ export default function UsersPage() {
           <PrivilegeDetailModal
             title={showPrivDetail.identity}
             grants={showPrivDetail.grants}
+            catalogGrants={showPrivDetail.catalogGrants}
             onClose={() => setShowPrivDetail(null)}
           />
         )}
