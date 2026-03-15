@@ -4,9 +4,17 @@ import { executeQuery } from '@/lib/db';
 export async function GET(request: NextRequest) {
   try {
     const sessionId = request.nextUrl.searchParams.get('sessionId');
-    const type = request.nextUrl.searchParams.get('type') || 'tasks'; // 'tasks' or 'task_runs'
+    const type = request.nextUrl.searchParams.get('type') || 'tasks'; // 'tasks', 'task_runs', or 'all'
     if (!sessionId) {
       return NextResponse.json({ error: 'Session ID required' }, { status: 400 });
+    }
+
+    if (type === 'all') {
+      const [tasksResult, runsResult] = await Promise.all([
+        executeQuery(sessionId, `SELECT * FROM information_schema.tasks ORDER BY CREATE_TIME DESC`),
+        executeQuery(sessionId, `SELECT * FROM information_schema.task_runs ORDER BY CREATE_TIME DESC LIMIT 200`),
+      ]);
+      return NextResponse.json({ tasks: tasksResult.rows, runs: runsResult.rows });
     }
 
     if (type === 'task_runs') {
