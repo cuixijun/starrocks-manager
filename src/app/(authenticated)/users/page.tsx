@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useSession } from '@/hooks/useSession';
 import { usePagination } from '@/hooks/usePagination';
 import { Pagination } from '@/components/ui';
+import PrivilegeDetailModal from '@/components/PrivilegeDetailModal';
 import {
   Users, Plus, Trash2, RefreshCw, Search, X,
   ChevronUp, ChevronDown, ChevronsUpDown, Clock, Key, ShieldCheck, ChevronRight,
@@ -607,77 +608,11 @@ export default function UsersPage() {
 
         {/* Privilege Detail Modal */}
         {showPrivDetail && (
-          <div className="modal-overlay" onClick={() => setShowPrivDetail(null)}>
-            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '680px', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
-              <div className="modal-header">
-                <div>
-                  <div className="modal-title">权限详情</div>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                    {showPrivDetail.identity} · {showPrivDetail.grants.length} 项权限
-                  </div>
-                </div>
-                <button className="btn-ghost btn-icon" onClick={() => setShowPrivDetail(null)}><X size={18} /></button>
-              </div>
-              <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px', padding: '4px 0' }}>
-                {showPrivDetail.grants.map((g, i) => {
-                  // Parse the GRANT statement for display
-                  const privMatch = g.match(/GRANT\s+(.+?)\s+ON\s+(.+?)\s+TO\s+/i);
-                  const privilege = privMatch ? privMatch[1] : g;
-                  const target = privMatch ? privMatch[2] : '';
-
-                  return (
-                    <div key={i} style={{
-                      display: 'flex', alignItems: 'flex-start', gap: '10px',
-                      padding: '8px 12px', borderRadius: 'var(--radius-sm)',
-                      backgroundColor: i % 2 === 0 ? 'var(--bg-secondary)' : 'transparent',
-                    }}>
-                      <span style={{
-                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                        width: '22px', height: '22px', borderRadius: '999px', flexShrink: 0,
-                        backgroundColor: 'rgba(37,99,235,0.08)', color: 'var(--primary-600)',
-                        fontSize: '0.68rem', fontWeight: 700,
-                      }}>
-                        {i + 1}
-                      </span>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        {privMatch ? (
-                          <>
-                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-                              <span style={{
-                                padding: '1px 7px', borderRadius: '999px', fontSize: '0.72rem', fontWeight: 600,
-                                backgroundColor: 'rgba(37,99,235,0.08)', color: 'var(--primary-600)',
-                                borderWidth: '1px', borderStyle: 'solid', borderColor: 'rgba(37,99,235,0.15)',
-                              }}>
-                                {privilege}
-                              </span>
-                              <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>ON</span>
-                              <code style={{
-                                fontSize: '0.74rem', color: 'var(--text-secondary)',
-                                fontFamily: "'JetBrains Mono', monospace",
-                              }}>
-                                {target}
-                              </code>
-                            </div>
-                          </>
-                        ) : (
-                          <code style={{
-                            fontSize: '0.74rem', color: 'var(--text-secondary)',
-                            fontFamily: "'JetBrains Mono', monospace",
-                            wordBreak: 'break-all',
-                          }}>
-                            {g}
-                          </code>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="modal-footer">
-                <button className="btn btn-secondary" onClick={() => setShowPrivDetail(null)}>关闭</button>
-              </div>
-            </div>
-          </div>
+          <PrivilegeDetailModal
+            title={showPrivDetail.identity}
+            grants={showPrivDetail.grants}
+            onClose={() => setShowPrivDetail(null)}
+          />
         )}
       </div>
     </>
