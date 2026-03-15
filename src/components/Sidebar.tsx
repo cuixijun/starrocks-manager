@@ -22,6 +22,7 @@ import {
   HardDrive,
   GitBranch,
   ListChecks,
+  Server,
 } from 'lucide-react';
 
 const navItems = [
@@ -44,6 +45,7 @@ const navItems = [
   { label: '资源管理', section: true },
   { href: '/resource-groups', icon: Layers, label: '资源组管理' },
   { label: '系统管理', section: true },
+  { href: '/nodes', icon: Server, label: '节点管理' },
   { href: '/functions', icon: Code2, label: '函数管理' },
   { href: '/variables', icon: Settings, label: '变量管理' },
 ];
