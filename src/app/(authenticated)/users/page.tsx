@@ -710,6 +710,18 @@ export default function UsersPage() {
                       borderRadius: 'var(--radius-md)',
                       overflow: 'hidden',
                     }}>
+                      {/* Role Tabs Header */}
+                      <div style={{
+                        display: 'flex', alignItems: 'center',
+                        padding: '6px 12px',
+                        backgroundColor: 'var(--bg-tertiary)',
+                        borderBottom: '1px solid var(--border-secondary)',
+                        gap: '6px',
+                      }}>
+                        <Eye size={13} style={{ color: 'var(--primary-500)' }} />
+                        <span style={{ fontSize: '0.74rem', fontWeight: 600, color: 'var(--text-secondary)' }}>角色权限预览</span>
+                        <span style={{ fontSize: '0.65rem', color: 'var(--text-tertiary)', marginLeft: '2px' }}>点击标签切换</span>
+                      </div>
                       {/* Role Tabs */}
                       <div style={{
                         display: 'flex', gap: '0',
@@ -759,8 +771,47 @@ export default function UsersPage() {
                             加载权限中...
                           </div>
                         ) : !cachedPriv ? (
-                          <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.8rem' }}>
-                            点击上方角色标签查看其权限
+                          <div
+                            onClick={() => {
+                              const firstRole = previewRoles[0];
+                              if (firstRole) {
+                                setPreviewTab(firstRole);
+                                if (!rolePrivCache[firstRole] && session) {
+                                  setRolePrivLoading(true);
+                                  fetch(`/api/grants?sessionId=${encodeURIComponent(session.sessionId)}&target=${encodeURIComponent(`ROLE '${firstRole}'`)}`)
+                                    .then(r => r.json())
+                                    .then(data => {
+                                      if (!data.error) {
+                                        setRolePrivCache(prev => ({ ...prev, [firstRole]: { grants: data.grants || [], catalogGrants: data.catalogGrants } }));
+                                      }
+                                    })
+                                    .finally(() => setRolePrivLoading(false));
+                                }
+                              }
+                            }}
+                            style={{
+                              padding: '28px 20px', textAlign: 'center',
+                              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px',
+                              cursor: 'pointer', transition: 'background-color 0.2s',
+                              borderRadius: 'var(--radius-sm)',
+                            }}
+                            onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'rgba(37,99,235,0.04)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                          >
+                            <div style={{
+                              width: '40px', height: '40px', borderRadius: '50%',
+                              backgroundColor: 'rgba(37,99,235,0.08)', border: '1px solid rgba(37,99,235,0.15)',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              animation: 'pulse 2s infinite',
+                            }}>
+                              <Eye size={18} style={{ color: 'var(--primary-500)' }} />
+                            </div>
+                            <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--primary-600)' }}>
+                              查看已分配角色的权限
+                            </div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>
+                              点击此处或上方标签，查看各角色拥有的权限明细
+                            </div>
                           </div>
                         ) : cachedPriv.grants.length === 0 ? (
                           <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.8rem' }}>
