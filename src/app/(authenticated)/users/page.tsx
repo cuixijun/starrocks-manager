@@ -9,8 +9,17 @@ import { classifyGrants, type CatalogGrant } from '@/utils/grantClassifier';
 import {
   Users, Plus, Trash2, RefreshCw, Search, X,
   ChevronUp, ChevronDown, ChevronsUpDown, Clock, Key, ShieldCheck, ChevronRight,
-  Shield, UserPlus, Eye,
+  Shield, UserPlus, Eye, ChevronLeft, Database,
 } from 'lucide-react';
+
+type PermLevel = 'rw' | 'readonly' | 'ddl' | 'dml';
+const PERM_LABELS: Record<PermLevel, string> = { rw: '读写', readonly: '只读', ddl: 'DDL', dml: 'DML' };
+const PERM_SQL: Record<PermLevel, string> = {
+  rw: 'SELECT, INSERT, UPDATE, DELETE',
+  readonly: 'SELECT',
+  ddl: 'CREATE TABLE, DROP, ALTER, CREATE VIEW, CREATE MATERIALIZED VIEW',
+  dml: 'SELECT, INSERT, UPDATE, DELETE, EXPORT',
+};
 
 interface UserEntry {
   identity: string;   // e.g. 'root'@'%'
@@ -53,12 +62,16 @@ export default function UsersPage() {
   // Privilege detail modal
   const [showPrivDetail, setShowPrivDetail] = useState<{ identity: string; grants: string[]; catalogGrants?: { grant: string; catalog: string }[] } | null>(null);
 
-  // Grant privilege modal
-  const [showGrant, setShowGrant] = useState<string | null>(null); // user identity
-  const [grantAction, setGrantAction] = useState<'grant_privilege' | 'revoke_privilege'>('grant_privilege');
-  const [grantPriv, setGrantPriv] = useState('SELECT');
-  const [grantObjType, setGrantObjType] = useState('TABLE');
-  const [grantObjName, setGrantObjName] = useState('');
+  // Grant privilege modal - Transfer List
+  const [showGrant, setShowGrant] = useState<string | null>(null);
+  const [grantAllDbs, setGrantAllDbs] = useState<string[]>([]);
+  const [grantRight, setGrantRight] = useState<Map<string, PermLevel>>(new Map()); // db -> perm
+  const [grantLeftChecked, setGrantLeftChecked] = useState<Set<string>>(new Set());
+  const [grantRightChecked, setGrantRightChecked] = useState<Set<string>>(new Set());
+  const [grantLeftSearch, setGrantLeftSearch] = useState('');
+  const [grantRightSearch, setGrantRightSearch] = useState('');
+  const [grantSubmitting, setGrantSubmitting] = useState(false);
+  const [grantOriginal, setGrantOriginal] = useState<Set<string>>(new Set()); // originally granted dbs
   // Role assignment modal
   const [showRoleAssign, setShowRoleAssign] = useState<string | null>(null);
   const [roleAction, setRoleAction] = useState<'grant_role' | 'revoke_role'>('grant_role');
@@ -164,29 +177,99 @@ export default function UsersPage() {
 
   const SYSTEM_USERS = new Set(['root', 'starrocks']);
 
-  async function handleGrantPrivilege() {
-    if (!session || !showGrant || !grantObjName) return;
+  // Open grant modal: fetch all DBs + parse existing grants
+  async function openGrantModal(userIdentity: string) {
+    setShowGrant(userIdentity);
+    setGrantLeftChecked(new Set());
+    setGrantRightChecked(new Set());
+    setGrantLeftSearch('');
+    setGrantRightSearch('');
+    setGrantSubmitting(false);
+    if (!session) return;
+    try {
+      // Fetch all databases
+      const dbRes = await fetch(`/api/databases?sessionId=${encodeURIComponent(session.sessionId)}`);
+      const dbData = await dbRes.json();
+      const allDbNames: string[] = (dbData.databases || []).map((d: { name: string }) => d.name);
+      setGrantAllDbs(allDbNames);
+      // Fetch user grants and parse granted DBs
+      const gRes = await fetch(`/api/grants?sessionId=${encodeURIComponent(session.sessionId)}&target=${encodeURIComponent(userIdentity)}`);
+      const gData = await gRes.json();
+      const granted = new Map<string, PermLevel>();
+      for (const g of (gData.grants || []) as string[]) {
+        // Parse: GRANT SELECT, ... ON ALL TABLES IN DATABASE xxx TO ...
+        const dbMatch = g.match(/ON\s+ALL\s+TABLES\s+IN\s+DATABASE\s+['`]?(\w+)['`]?/i);
+        if (dbMatch) {
+          const db = dbMatch[1];
+          const upper = g.toUpperCase();
+          if (upper.includes('INSERT') && upper.includes('SELECT')) granted.set(db, 'rw');
+          else if (upper.includes('CREATE TABLE')) granted.set(db, 'ddl');
+          else if (upper.includes('EXPORT')) granted.set(db, 'dml');
+          else if (upper.includes('SELECT')) granted.set(db, 'readonly');
+          else granted.set(db, 'rw');
+        }
+        // Parse: GRANT ... ON DATABASE xxx TO ...
+        const dbDirect = g.match(/ON\s+DATABASE\s+['`]?(\w+)['`]?/i);
+        if (dbDirect && !dbMatch) {
+          granted.set(dbDirect[1], 'rw');
+        }
+      }
+      setGrantRight(granted);
+      setGrantOriginal(new Set(granted.keys()));
+    } catch (err) { setError(String(err)); }
+  }
+
+  async function handleGrantSubmit() {
+    if (!session || !showGrant) return;
+    setGrantSubmitting(true);
     setError('');
     try {
-      const res = await fetch('/api/grants', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId: session.sessionId,
-          action: grantAction,
-          grantee: showGrant,
-          privilege: grantPriv,
-          objectType: grantObjType,
-          objectName: grantObjName,
-        }),
-      });
-      const data = await res.json();
-      if (data.error) setError(data.error);
+      const currentDbs = new Set(grantRight.keys());
+      const ops: Promise<Response>[] = [];
+      // Grant new databases
+      for (const [db, perm] of grantRight) {
+        if (!grantOriginal.has(db)) {
+          ops.push(fetch('/api/grants', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sessionId: session.sessionId, action: 'grant_privilege',
+              grantee: showGrant, privilege: PERM_SQL[perm],
+              objectType: 'ALL TABLES IN DATABASE', objectName: db,
+            }),
+          }));
+        }
+      }
+      // Revoke removed databases
+      for (const db of grantOriginal) {
+        if (!currentDbs.has(db)) {
+          ops.push(fetch('/api/grants', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sessionId: session.sessionId, action: 'revoke_privilege',
+              grantee: showGrant, privilege: 'ALL',
+              objectType: 'ALL TABLES IN DATABASE', objectName: db,
+            }),
+          }));
+        }
+      }
+      if (ops.length === 0) {
+        setShowGrant(null);
+        return;
+      }
+      const results = await Promise.all(ops);
+      const errors: string[] = [];
+      for (const r of results) {
+        const d = await r.json();
+        if (d.error) errors.push(d.error);
+      }
+      if (errors.length) setError(errors.join('; '));
       else {
-        setSuccess(`${grantAction === 'grant_privilege' ? '授权' : '撤销'}成功`);
+        setSuccess(`授权操作完成（${ops.length} 条）`);
         setShowGrant(null);
         fetchUsers(true);
       }
     } catch (err) { setError(String(err)); }
+    finally { setGrantSubmitting(false); }
   }
 
   async function handleRoleAssign() {
@@ -446,7 +529,7 @@ export default function UsersPage() {
                         <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center' }}>
                           <button
                             disabled={isSystem}
-                            onClick={() => !isSystem && setShowGrant(u.identity)}
+                            onClick={() => !isSystem && openGrantModal(u.identity)}
                             title={isSystem ? '系统用户请通过命令行管理' : '授权'}
                             style={{
                               display: 'inline-flex', alignItems: 'center', gap: '4px',
@@ -560,80 +643,199 @@ export default function UsersPage() {
           </div>
         )}
 
-        {/* Grant Privilege Modal */}
-        {showGrant && (
-          <div className="modal-overlay" onClick={() => setShowGrant(null)}>
-            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '560px' }}>
-              <div className="modal-header">
-                <div className="modal-title">授权 / 撤销权限 — {showGrant}</div>
-                <button className="btn-ghost btn-icon" onClick={() => setShowGrant(null)}><X size={18} /></button>
-              </div>
-              <div className="modal-body">
-                <div className="form-group">
-                  <label className="form-label">操作</label>
-                  <select className="input" value={grantAction} onChange={e => setGrantAction(e.target.value as 'grant_privilege' | 'revoke_privilege')}>
-                    <option value="grant_privilege">授予 (GRANT)</option>
-                    <option value="revoke_privilege">撤销 (REVOKE)</option>
-                  </select>
+        {/* Grant Privilege Modal - Transfer List */}
+        {showGrant && (() => {
+          const leftDbs = grantAllDbs.filter(d => !grantRight.has(d));
+          const filteredLeft = leftDbs.filter(d => !grantLeftSearch || d.toLowerCase().includes(grantLeftSearch.toLowerCase()));
+          const rightDbs = Array.from(grantRight.keys());
+          const filteredRight = rightDbs.filter(d => !grantRightSearch || d.toLowerCase().includes(grantRightSearch.toLowerCase()));
+          // SQL preview lines
+          const sqlLines: string[] = [];
+          for (const [db, perm] of grantRight) {
+            if (!grantOriginal.has(db)) {
+              sqlLines.push(`GRANT ${PERM_SQL[perm]} ON ALL TABLES IN DATABASE ${db} TO ${showGrant}`);
+            }
+          }
+          for (const db of grantOriginal) {
+            if (!grantRight.has(db)) {
+              sqlLines.push(`REVOKE ALL ON ALL TABLES IN DATABASE ${db} FROM ${showGrant}`);
+            }
+          }
+          return (
+            <div className="modal-overlay" onClick={() => setShowGrant(null)}>
+              <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '900px', padding: 0 }}>
+                <div style={{ padding: '16px 20px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div className="modal-title">数据库授权 — {showGrant}</div>
+                  <button className="btn-ghost btn-icon" onClick={() => setShowGrant(null)}><X size={18} /></button>
                 </div>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">权限类型</label>
-                    <select className="input" value={grantPriv} onChange={e => setGrantPriv(e.target.value)}>
-                      <option value="ALL">ALL (全部)</option>
-                      <option value="SELECT">SELECT</option>
-                      <option value="INSERT">INSERT</option>
-                      <option value="UPDATE">UPDATE</option>
-                      <option value="DELETE">DELETE</option>
-                      <option value="ALTER">ALTER</option>
-                      <option value="DROP">DROP</option>
-                      <option value="CREATE TABLE">CREATE TABLE</option>
-                      <option value="CREATE VIEW">CREATE VIEW</option>
-                      <option value="CREATE MATERIALIZED VIEW">CREATE MV</option>
-                      <option value="USAGE">USAGE</option>
-                      <option value="IMPERSONATE">IMPERSONATE</option>
-                    </select>
+
+                <div style={{ padding: '0 20px 12px' }}>
+                  <div className="transfer-container">
+                    {/* Left Panel - Not Granted */}
+                    <div className="transfer-panel">
+                      <div className="transfer-panel-header">
+                        <input
+                          type="checkbox"
+                          checked={filteredLeft.length > 0 && filteredLeft.every(d => grantLeftChecked.has(d))}
+                          onChange={e => {
+                            if (e.target.checked) setGrantLeftChecked(new Set(filteredLeft));
+                            else setGrantLeftChecked(new Set());
+                          }}
+                        />
+                        <Database size={13} />
+                        <span>未授权数据库</span>
+                        <span style={{ marginLeft: 'auto', fontSize: '0.68rem', color: 'var(--text-tertiary)', fontWeight: 400 }}>
+                          {grantLeftChecked.size > 0 ? `${grantLeftChecked.size}/` : ''}{filteredLeft.length} 项
+                        </span>
+                      </div>
+                      <div className="transfer-panel-search">
+                        <input placeholder="搜索库名..." value={grantLeftSearch} onChange={e => setGrantLeftSearch(e.target.value)} />
+                      </div>
+                      <div className="transfer-panel-list">
+                        {filteredLeft.length === 0 ? (
+                          <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.78rem' }}>暂无未授权数据库</div>
+                        ) : filteredLeft.map(db => (
+                          <div
+                            key={db}
+                            className={`transfer-item${grantLeftChecked.has(db) ? ' checked' : ''}`}
+                            onClick={() => {
+                              const next = new Set(grantLeftChecked);
+                              next.has(db) ? next.delete(db) : next.add(db);
+                              setGrantLeftChecked(next);
+                            }}
+                          >
+                            <input type="checkbox" checked={grantLeftChecked.has(db)} readOnly />
+                            <Database size={14} style={{ color: 'var(--primary-400)', flexShrink: 0 }} />
+                            <span className="transfer-item-name">{db}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="transfer-panel-footer">
+                        共 {leftDbs.length} 个数据库
+                      </div>
+                    </div>
+
+                    {/* Middle Actions */}
+                    <div className="transfer-actions">
+                      <button
+                        disabled={grantLeftChecked.size === 0}
+                        title="移至已授权"
+                        onClick={() => {
+                          const next = new Map(grantRight);
+                          for (const db of grantLeftChecked) next.set(db, 'rw');
+                          setGrantRight(next);
+                          setGrantLeftChecked(new Set());
+                        }}
+                      >
+                        <ChevronRight size={16} />
+                      </button>
+                      <button
+                        disabled={grantRightChecked.size === 0}
+                        title="移回未授权"
+                        onClick={() => {
+                          const next = new Map(grantRight);
+                          for (const db of grantRightChecked) next.delete(db);
+                          setGrantRight(next);
+                          setGrantRightChecked(new Set());
+                        }}
+                      >
+                        <ChevronLeft size={16} />
+                      </button>
+                    </div>
+
+                    {/* Right Panel - Granted */}
+                    <div className="transfer-panel">
+                      <div className="transfer-panel-header">
+                        <input
+                          type="checkbox"
+                          checked={filteredRight.length > 0 && filteredRight.every(d => grantRightChecked.has(d))}
+                          onChange={e => {
+                            if (e.target.checked) setGrantRightChecked(new Set(filteredRight));
+                            else setGrantRightChecked(new Set());
+                          }}
+                        />
+                        <Shield size={13} />
+                        <span>已授权数据库</span>
+                        <span style={{ marginLeft: 'auto', fontSize: '0.68rem', color: 'var(--text-tertiary)', fontWeight: 400 }}>
+                          {grantRightChecked.size > 0 ? `${grantRightChecked.size}/` : ''}{filteredRight.length} 项
+                        </span>
+                      </div>
+                      <div className="transfer-panel-search">
+                        <input placeholder="搜索库名..." value={grantRightSearch} onChange={e => setGrantRightSearch(e.target.value)} />
+                      </div>
+                      <div className="transfer-panel-list">
+                        {filteredRight.length === 0 ? (
+                          <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.78rem' }}>暂无已授权数据库</div>
+                        ) : filteredRight.map(db => (
+                          <div
+                            key={db}
+                            className={`transfer-item${grantRightChecked.has(db) ? ' checked' : ''}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={grantRightChecked.has(db)}
+                              onChange={() => {
+                                const next = new Set(grantRightChecked);
+                                next.has(db) ? next.delete(db) : next.add(db);
+                                setGrantRightChecked(next);
+                              }}
+                            />
+                            <span className="transfer-item-name" onClick={() => {
+                              const next = new Set(grantRightChecked);
+                              next.has(db) ? next.delete(db) : next.add(db);
+                              setGrantRightChecked(next);
+                            }}>{db}</span>
+                            <div className="transfer-item-radios">
+                              {(['rw', 'readonly', 'ddl', 'dml'] as PermLevel[]).map(p => (
+                                <label
+                                  key={p}
+                                  className={grantRight.get(db) === p ? 'active' : ''}
+                                  onClick={e => e.stopPropagation()}
+                                >
+                                  <input
+                                    type="radio"
+                                    name={`perm-${db}`}
+                                    checked={grantRight.get(db) === p}
+                                    onChange={() => {
+                                      const next = new Map(grantRight);
+                                      next.set(db, p);
+                                      setGrantRight(next);
+                                    }}
+                                  />
+                                  {PERM_LABELS[p]}
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="transfer-panel-footer">
+                        共 {rightDbs.length} 个已授权
+                      </div>
+                    </div>
                   </div>
-                  <div className="form-group">
-                    <label className="form-label">对象类型</label>
-                    <select className="input" value={grantObjType} onChange={e => setGrantObjType(e.target.value)}>
-                      <option value="TABLE">TABLE</option>
-                      <option value="ALL TABLES IN DATABASE">ALL TABLES IN DATABASE</option>
-                      <option value="ALL TABLES IN ALL DATABASES">ALL TABLES IN ALL DATABASES</option>
-                      <option value="DATABASE">DATABASE</option>
-                      <option value="ALL DATABASES">ALL DATABASES</option>
-                      <option value="CATALOG">CATALOG</option>
-                      <option value="ALL CATALOGS">ALL CATALOGS</option>
-                      <option value="MATERIALIZED VIEW">MATERIALIZED VIEW</option>
-                      <option value="ALL MATERIALIZED VIEWS IN DATABASE">ALL MVs IN DATABASE</option>
-                      <option value="FUNCTION">FUNCTION</option>
-                      <option value="ALL FUNCTIONS IN DATABASE">ALL FUNCTIONS IN DATABASE</option>
-                      <option value="ALL GLOBAL FUNCTIONS">ALL GLOBAL FUNCTIONS</option>
-                      <option value="RESOURCE GROUP">RESOURCE GROUP</option>
-                    </select>
-                  </div>
+
+                  {/* SQL Preview */}
+                  {sqlLines.length > 0 && (
+                    <div style={{ marginTop: '10px', padding: '8px 12px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-secondary)', maxHeight: '80px', overflowY: 'auto' }}>
+                      <div style={{ fontSize: '0.65rem', color: 'var(--text-tertiary)', marginBottom: '3px' }}>SQL 预览 ({sqlLines.length} 条)</div>
+                      {sqlLines.map((s, i) => (
+                        <div key={i} style={{ fontSize: '0.72rem', color: s.startsWith('REVOKE') ? 'var(--danger-500)' : 'var(--primary-600)', fontFamily: "'JetBrains Mono', monospace", lineHeight: 1.5 }}>{s}</div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <div className="form-group">
-                  <label className="form-label">对象名 <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>（如 db.table 或 db_name，ALL 类型填空即可）</span></label>
-                  <input className="input" placeholder="database.table 或 database_name" value={grantObjName} onChange={e => setGrantObjName(e.target.value)} />
+
+                <div style={{ padding: '10px 20px', borderTop: '1px solid var(--border-secondary)', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                  <button className="btn btn-secondary" onClick={() => setShowGrant(null)}>取消</button>
+                  <button className="btn btn-primary" onClick={handleGrantSubmit} disabled={grantSubmitting || sqlLines.length === 0}>
+                    {grantSubmitting ? <span className="spinner" /> : <Shield size={16} />} 确定
+                  </button>
                 </div>
-                {/* SQL Preview */}
-                <div style={{ marginTop: '8px', padding: '10px 14px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-secondary)' }}>
-                  <div style={{ fontSize: '0.68rem', color: 'var(--text-tertiary)', marginBottom: '4px' }}>SQL 预览</div>
-                  <code style={{ fontSize: '0.78rem', color: 'var(--primary-600)', fontFamily: "'JetBrains Mono', monospace", wordBreak: 'break-all' }}>
-                    {grantAction === 'grant_privilege' ? 'GRANT' : 'REVOKE'} {grantPriv} ON {grantObjType} {grantObjName || '...'} {grantAction === 'grant_privilege' ? 'TO' : 'FROM'} {showGrant}
-                  </code>
-                </div>
-              </div>
-              <div className="modal-footer">
-                <button className="btn btn-secondary" onClick={() => setShowGrant(null)}>取消</button>
-                <button className="btn btn-primary" onClick={handleGrantPrivilege} disabled={!grantObjName && !grantObjType.startsWith('ALL')}>
-                  <Shield size={16} /> {grantAction === 'grant_privilege' ? '授权' : '撤销'}
-                </button>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Role Assignment Modal */}
         {showRoleAssign && (() => {
