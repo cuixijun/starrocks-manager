@@ -4,7 +4,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useSession } from '@/hooks/useSession';
 import { usePagination } from '@/hooks/usePagination';
 import { Pagination } from '@/components/ui';
-import PrivilegeDetailModal from '@/components/PrivilegeDetailModal';
+import PrivilegeDetailModal, { CatalogSectionBlock } from '@/components/PrivilegeDetailModal';
+import { classifyGrants, type CatalogGrant } from '@/utils/grantClassifier';
 import {
   Users, Plus, Trash2, RefreshCw, Search, X,
   ChevronUp, ChevronDown, ChevronsUpDown, Clock, Key, ShieldCheck, ChevronRight,
@@ -62,6 +63,10 @@ export default function UsersPage() {
   const [showRoleAssign, setShowRoleAssign] = useState<string | null>(null);
   const [roleAction, setRoleAction] = useState<'grant_role' | 'revoke_role'>('grant_role');
   const [roleNameInput, setRoleNameInput] = useState('');
+  const [allRoles, setAllRoles] = useState<string[]>([]);
+  const [rolePrivCache, setRolePrivCache] = useState<Record<string, { grants: string[]; catalogGrants?: CatalogGrant[] }>>({}); 
+  const [rolePrivLoading, setRolePrivLoading] = useState(false);
+  const [previewTab, setPreviewTab] = useState<string>('');
 
   const fetchUsers = useCallback(async (forceRefresh = false) => {
     if (!session) return;
@@ -88,6 +93,25 @@ export default function UsersPage() {
   useEffect(() => {
     if (success) { const t = setTimeout(() => setSuccess(''), 3000); return () => clearTimeout(t); }
   }, [success]);
+
+  // Fetch all roles when the role assignment modal opens
+  useEffect(() => {
+    if (showRoleAssign && session) {
+      setRoleNameInput('');
+      setRolePrivCache({});
+      setPreviewTab('');
+      fetch(`/api/roles?sessionId=${encodeURIComponent(session.sessionId)}`)
+        .then(r => r.json())
+        .then(data => {
+          if (!data.error) {
+            const names: string[] = (data.roles || []).map((r: Record<string, unknown>) =>
+              String(r['Name'] || r['name'] || r['Value'] || Object.values(r)[0] || '')
+            );
+            setAllRoles(names);
+          }
+        });
+    }
+  }, [showRoleAssign, session]);
 
   async function handleCreate() {
     if (!session || !form.username) return;
@@ -610,41 +634,167 @@ export default function UsersPage() {
         )}
 
         {/* Role Assignment Modal */}
-        {showRoleAssign && (
-          <div className="modal-overlay" onClick={() => setShowRoleAssign(null)}>
-            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '440px' }}>
-              <div className="modal-header">
-                <div className="modal-title">分配 / 撤销角色 — {showRoleAssign}</div>
-                <button className="btn-ghost btn-icon" onClick={() => setShowRoleAssign(null)}><X size={18} /></button>
-              </div>
-              <div className="modal-body">
-                <div className="form-group">
-                  <label className="form-label">操作</label>
-                  <select className="input" value={roleAction} onChange={e => setRoleAction(e.target.value as 'grant_role' | 'revoke_role')}>
-                    <option value="grant_role">授予角色 (GRANT)</option>
-                    <option value="revoke_role">撤销角色 (REVOKE)</option>
-                  </select>
+        {showRoleAssign && (() => {
+          // Find this user's existing roles
+          const thisUser = users.find(u => u.identity === showRoleAssign);
+          const existingRoles: string[] = [];
+          if (thisUser) {
+            thisUser.grants.forEach(g => {
+              const roleMatch = g.match(/GRANT\s+((?:['`][^'`]+['`](?:\s*,\s*)?)+)\s+TO/i);
+              if (roleMatch) {
+                const roles = roleMatch[1].match(/['`]([^'`]+)['`]/g) || [];
+                roles.forEach(r => existingRoles.push(r.replace(/['`]/g, '')));
+              }
+            });
+          }
+          // All tabs: existing roles + the one being selected (if not already there)
+          const previewRoles = [...existingRoles];
+          if (roleNameInput && !previewRoles.includes(roleNameInput)) {
+            previewRoles.push(roleNameInput);
+          }
+          const activeTab = previewTab || (previewRoles[0] || '');
+          const cachedPriv = rolePrivCache[activeTab];
+          const catalogGroups = cachedPriv ? classifyGrants(cachedPriv.grants, cachedPriv.catalogGrants) : [];
+
+          return (
+            <div className="modal-overlay" onClick={() => setShowRoleAssign(null)}>
+              <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '640px' }}>
+                <div className="modal-header">
+                  <div className="modal-title">分配 / 撤销角色 — {showRoleAssign}</div>
+                  <button className="btn-ghost btn-icon" onClick={() => setShowRoleAssign(null)}><X size={18} /></button>
                 </div>
-                <div className="form-group">
-                  <label className="form-label">角色名</label>
-                  <input className="input" placeholder="role_name" value={roleNameInput} onChange={e => setRoleNameInput(e.target.value)} />
+                <div className="modal-body" style={{ padding: '16px' }}>
+                  <div style={{ display: 'flex', gap: '12px', marginBottom: '12px' }}>
+                    <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
+                      <label className="form-label">操作</label>
+                      <select className="input" value={roleAction} onChange={e => setRoleAction(e.target.value as 'grant_role' | 'revoke_role')}>
+                        <option value="grant_role">授予角色 (GRANT)</option>
+                        <option value="revoke_role">撤销角色 (REVOKE)</option>
+                      </select>
+                    </div>
+                    <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
+                      <label className="form-label">角色名</label>
+                      <select
+                        className="input"
+                        value={roleNameInput}
+                        onChange={e => {
+                          const v = e.target.value;
+                          setRoleNameInput(v);
+                          setPreviewTab(v);
+                          // Auto-fetch privileges for this role
+                          if (v && !rolePrivCache[v] && session) {
+                            setRolePrivLoading(true);
+                            fetch(`/api/grants?sessionId=${encodeURIComponent(session.sessionId)}&target=${encodeURIComponent(`ROLE '${v}'`)}`)
+                              .then(r => r.json())
+                              .then(data => {
+                                if (!data.error) {
+                                  setRolePrivCache(prev => ({ ...prev, [v]: { grants: data.grants || [], catalogGrants: data.catalogGrants } }));
+                                }
+                              })
+                              .finally(() => setRolePrivLoading(false));
+                          }
+                        }}
+                      >
+                        <option value="">请选择角色...</option>
+                        {allRoles.map(r => (
+                          <option key={r} value={r}>{r}{existingRoles.includes(r) ? ' ✓' : ''}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Privilege Preview Section */}
+                  {previewRoles.length > 0 && (
+                    <div style={{
+                      border: '1px solid var(--border-secondary)',
+                      borderRadius: 'var(--radius-md)',
+                      overflow: 'hidden',
+                    }}>
+                      {/* Role Tabs */}
+                      <div style={{
+                        display: 'flex', gap: '0',
+                        borderBottom: '1px solid var(--border-secondary)',
+                        backgroundColor: 'var(--bg-secondary)',
+                        overflowX: 'auto',
+                      }}>
+                        {previewRoles.map(r => (
+                          <button
+                            key={r}
+                            onClick={() => {
+                              setPreviewTab(r);
+                              // Fetch privileges if not cached
+                              if (!rolePrivCache[r] && session) {
+                                setRolePrivLoading(true);
+                                fetch(`/api/grants?sessionId=${encodeURIComponent(session.sessionId)}&target=${encodeURIComponent(`ROLE '${r}'`)}`)
+                                  .then(res => res.json())
+                                  .then(data => {
+                                    if (!data.error) {
+                                      setRolePrivCache(prev => ({ ...prev, [r]: { grants: data.grants || [], catalogGrants: data.catalogGrants } }));
+                                    }
+                                  })
+                                  .finally(() => setRolePrivLoading(false));
+                              }
+                            }}
+                            style={{
+                              padding: '6px 14px', fontSize: '0.76rem', fontWeight: 500,
+                              border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
+                              borderBottom: activeTab === r ? '2px solid var(--primary-500)' : '2px solid transparent',
+                              backgroundColor: activeTab === r ? 'var(--bg-primary)' : 'transparent',
+                              color: activeTab === r ? 'var(--primary-600)' : 'var(--text-tertiary)',
+                              transition: 'all 0.15s',
+                            }}
+                          >
+                            {r}
+                            {existingRoles.includes(r) && (
+                              <span style={{ marginLeft: '4px', fontSize: '0.65rem', opacity: 0.6 }}>已分配</span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                      {/* Privilege Content */}
+                      <div style={{ maxHeight: '280px', overflowY: 'auto', padding: '8px' }}>
+                        {rolePrivLoading ? (
+                          <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.8rem' }}>
+                            <div className="spinner" style={{ width: '20px', height: '20px', margin: '0 auto 8px' }} />
+                            加载权限中...
+                          </div>
+                        ) : !cachedPriv ? (
+                          <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.8rem' }}>
+                            点击上方角色标签查看其权限
+                          </div>
+                        ) : cachedPriv.grants.length === 0 ? (
+                          <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.8rem' }}>
+                            该角色暂无权限
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {catalogGroups.map((cg, i) => (
+                              <CatalogSectionBlock key={i} group={cg} />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* SQL Preview */}
+                  <div style={{ marginTop: '12px', padding: '10px 14px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-secondary)' }}>
+                    <div style={{ fontSize: '0.68rem', color: 'var(--text-tertiary)', marginBottom: '4px' }}>SQL 预览</div>
+                    <code style={{ fontSize: '0.78rem', color: 'var(--primary-600)', fontFamily: "'JetBrains Mono', monospace" }}>
+                      {roleAction === 'grant_role' ? 'GRANT' : 'REVOKE'} &apos;{roleNameInput || '...'}&apos; {roleAction === 'grant_role' ? 'TO' : 'FROM'} {showRoleAssign}
+                    </code>
+                  </div>
                 </div>
-                <div style={{ marginTop: '8px', padding: '10px 14px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-secondary)' }}>
-                  <div style={{ fontSize: '0.68rem', color: 'var(--text-tertiary)', marginBottom: '4px' }}>SQL 预览</div>
-                  <code style={{ fontSize: '0.78rem', color: 'var(--primary-600)', fontFamily: "'JetBrains Mono', monospace" }}>
-                    {roleAction === 'grant_role' ? 'GRANT' : 'REVOKE'} &apos;{roleNameInput || '...'}&apos; {roleAction === 'grant_role' ? 'TO' : 'FROM'} {showRoleAssign}
-                  </code>
+                <div className="modal-footer">
+                  <button className="btn btn-secondary" onClick={() => setShowRoleAssign(null)}>取消</button>
+                  <button className="btn btn-primary" onClick={handleRoleAssign} disabled={!roleNameInput}>
+                    <UserPlus size={16} /> {roleAction === 'grant_role' ? '授予' : '撤销'}
+                  </button>
                 </div>
-              </div>
-              <div className="modal-footer">
-                <button className="btn btn-secondary" onClick={() => setShowRoleAssign(null)}>取消</button>
-                <button className="btn btn-primary" onClick={handleRoleAssign} disabled={!roleNameInput}>
-                  <UserPlus size={16} /> {roleAction === 'grant_role' ? '授予' : '撤销'}
-                </button>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Privilege Detail Modal */}
         {showPrivDetail && (

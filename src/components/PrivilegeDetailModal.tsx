@@ -52,7 +52,7 @@ function PrivilegeItem({ priv }: { priv: ParsedPrivilege }) {
 
 /* ── Collapsible category section ───────────────────────────────────── */
 
-function CategorySection({ group, defaultCollapsed = false }: {
+export function CategorySection({ group, defaultCollapsed = false }: {
   group: CategorisedGroup;
   defaultCollapsed?: boolean;
 }) {
@@ -124,7 +124,7 @@ function CategorySection({ group, defaultCollapsed = false }: {
 
 /* ── Catalog scope section ──────────────────────────────────────────── */
 
-function CatalogSectionBlock({ group }: { group: CatalogGroup }) {
+export function CatalogSectionBlock({ group }: { group: CatalogGroup }) {
   const displayName = group.catalogName === 'default_catalog'
     ? '内部权限'
     : `外部 Catalog: ${group.catalogName}`;
