@@ -419,31 +419,37 @@ export default function UsersPage() {
                       <td>
                         <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center' }}>
                           <button
-                            onClick={() => setShowGrant(u.identity)}
-                            title="授权"
+                            disabled={isSystem}
+                            onClick={() => !isSystem && setShowGrant(u.identity)}
+                            title={isSystem ? '系统用户请通过命令行管理' : '授权'}
                             style={{
                               display: 'inline-flex', alignItems: 'center', gap: '4px',
                               padding: '3px 10px', borderRadius: '6px', fontSize: '0.75rem',
-                              border: '1px solid var(--primary-200)',
-                              backgroundColor: 'var(--primary-50)',
-                              color: 'var(--primary-600)',
-                              cursor: 'pointer', transition: 'all 0.15s',
+                              border: `1px solid ${isSystem ? 'var(--border-secondary)' : 'var(--primary-200)'}`,
+                              backgroundColor: isSystem ? 'transparent' : 'var(--primary-50)',
+                              color: isSystem ? 'var(--text-tertiary)' : 'var(--primary-600)',
+                              cursor: isSystem ? 'not-allowed' : 'pointer',
+                              transition: 'all 0.15s',
                               fontWeight: 500, whiteSpace: 'nowrap',
+                              opacity: isSystem ? 0.4 : 1,
                             }}
                           >
                             <Shield size={12} /> 授权
                           </button>
                           <button
-                            onClick={() => setShowRoleAssign(u.identity)}
-                            title="分配角色"
+                            disabled={isSystem}
+                            onClick={() => !isSystem && setShowRoleAssign(u.identity)}
+                            title={isSystem ? '系统用户请通过命令行管理' : '分配角色'}
                             style={{
                               display: 'inline-flex', alignItems: 'center', gap: '4px',
                               padding: '3px 10px', borderRadius: '6px', fontSize: '0.75rem',
                               border: '1px solid var(--border-secondary)',
                               backgroundColor: 'transparent',
-                              color: 'var(--text-secondary)',
-                              cursor: 'pointer', transition: 'all 0.15s',
+                              color: isSystem ? 'var(--text-tertiary)' : 'var(--text-secondary)',
+                              cursor: isSystem ? 'not-allowed' : 'pointer',
+                              transition: 'all 0.15s',
                               fontWeight: 500, whiteSpace: 'nowrap',
+                              opacity: isSystem ? 0.4 : 1,
                             }}
                           >
                             <UserPlus size={12} /> 角色
