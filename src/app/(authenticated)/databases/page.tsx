@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useSession } from '@/hooks/useSession';
 import { usePagination } from '@/hooks/usePagination';
 import { Pagination } from '@/components/ui';
+import Breadcrumb from '@/components/Breadcrumb';
 import Link from 'next/link';
 import {
   Database, Search, Table2, RefreshCw, ChevronUp, ChevronDown, ChevronsUpDown, ArrowRight, Clock
@@ -103,6 +104,7 @@ export default function DatabasesPage() {
     <>
       {/* Page Header */}
       <div className="page-header">
+        <Breadcrumb items={[{ label: '数据库浏览' }]} />
         <div className="page-header-row">
           <div>
             <h1 className="page-title">数据库浏览</h1>

@@ -4,7 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { useSession } from '@/hooks/useSession';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Copy, Check } from 'lucide-react';
+import { ArrowLeft, Copy, Check, RefreshCw } from 'lucide-react';
+import Breadcrumb from '@/components/Breadcrumb';
 
 interface ColumnInfo {
   Field: string;
@@ -28,18 +29,20 @@ export default function TableDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [previewLimit, setPreviewLimit] = useState(10);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   useEffect(() => {
     if (!session) return;
     fetchTableDetail();
   }, [session, db, table]);
 
-  async function fetchTableDetail() {
+  async function fetchTableDetail(limit = 10) {
     if (!session) return;
     setLoading(true);
     try {
       const res = await fetch(
-        `/api/databases/${encodeURIComponent(db)}/${encodeURIComponent(table)}?sessionId=${encodeURIComponent(session.sessionId)}`
+        `/api/databases/${encodeURIComponent(db)}/${encodeURIComponent(table)}?sessionId=${encodeURIComponent(session.sessionId)}&limit=${limit}`
       );
       const data = await res.json();
       if (data.error) setError(data.error);
@@ -54,6 +57,26 @@ export default function TableDetailPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function fetchPreview(limit: number) {
+    if (!session) return;
+    setPreviewLoading(true);
+    try {
+      const res = await fetch(
+        `/api/databases/${encodeURIComponent(db)}/${encodeURIComponent(table)}?sessionId=${encodeURIComponent(session.sessionId)}&limit=${limit}`
+      );
+      const data = await res.json();
+      if (!data.error) {
+        setPreview(data.preview || { rows: [], fields: [] });
+      }
+    } catch { /* ignore */ }
+    finally { setPreviewLoading(false); }
+  }
+
+  function handleLimitChange(newLimit: number) {
+    setPreviewLimit(newLimit);
+    fetchPreview(newLimit);
   }
 
   function copyDdl() {
@@ -72,10 +95,12 @@ export default function TableDetailPage() {
   return (
     <>
       <div className="page-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <Link href={`/databases/${encodeURIComponent(db)}`} className="btn btn-ghost btn-icon">
-            <ArrowLeft size={18} />
-          </Link>
+        <Breadcrumb items={[
+          { label: '数据库浏览', href: '/databases' },
+          { label: db, href: `/databases/${encodeURIComponent(db)}` },
+          { label: table },
+        ]} />
+        <div className="page-header-row">
           <div>
             <h1 className="page-title">{table}</h1>
             <p className="page-description">{db} · {schema.length} 列</p>
@@ -180,32 +205,67 @@ export default function TableDetailPage() {
             )}
 
             {activeTab === 'preview' && (
-              preview.rows.length === 0 ? (
-                <div className="empty-state fade-in">
-                  <div className="empty-state-text">暂无数据</div>
+              <div className="fade-in">
+                {/* Limit selector toolbar */}
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '8px 0', marginBottom: '8px', gap: '12px', flexWrap: 'wrap',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                    <span>显示行数</span>
+                    <select
+                      value={previewLimit}
+                      onChange={e => handleLimitChange(Number(e.target.value))}
+                      style={{
+                        padding: '4px 8px', borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--border-secondary)', background: 'var(--bg-primary)',
+                        fontSize: '0.82rem', color: 'var(--text-primary)', cursor: 'pointer',
+                      }}
+                    >
+                      {[10, 50, 100, 200, 500].map(n => (
+                        <option key={n} value={n}>{n} 条</option>
+                      ))}
+                    </select>
+                    {previewLoading && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--primary-500)', fontSize: '0.78rem' }}>
+                        <RefreshCw size={12} style={{ animation: 'spin 1s linear infinite' }} /> 加载中...
+                      </span>
+                    )}
+                  </div>
+                  <span style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)' }}>
+                    已加载 {preview.rows.length} 条记录
+                  </span>
                 </div>
-              ) : (
-                <div className="table-container fade-in">
-                  <table>
-                    <thead>
-                      <tr>
-                        {preview.fields.map(f => (
-                          <th key={f.name}>{f.name}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {preview.rows.map((row, i) => (
-                        <tr key={i}>
+
+                {preview.rows.length === 0 ? (
+                  <div className="empty-state">
+                    <div className="empty-state-text">暂无数据</div>
+                  </div>
+                ) : (
+                  <div className="table-container">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th style={{ width: '48px', textAlign: 'center' }}>#</th>
                           {preview.fields.map(f => (
-                            <td key={f.name} className="text-xs">{String((row as Record<string, unknown>)[f.name] ?? 'NULL')}</td>
+                            <th key={f.name}>{f.name}</th>
                           ))}
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )
+                      </thead>
+                      <tbody>
+                        {preview.rows.map((row, i) => (
+                          <tr key={i}>
+                            <td style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.78rem' }}>{i + 1}</td>
+                            {preview.fields.map(f => (
+                              <td key={f.name} className="text-xs">{String((row as Record<string, unknown>)[f.name] ?? 'NULL')}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             )}
           </>
         )}

@@ -34,3 +34,57 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+// POST: Create a new catalog by executing raw SQL
+export async function POST(request: NextRequest) {
+  try {
+    const { sessionId, sql } = await request.json();
+    if (!sessionId || !sql) {
+      return NextResponse.json({ error: 'sessionId and sql are required' }, { status: 400 });
+    }
+
+    // Basic validation: must be a CREATE EXTERNAL CATALOG statement
+    const trimmed = sql.trim().toUpperCase();
+    if (!trimmed.startsWith('CREATE EXTERNAL CATALOG') && !trimmed.startsWith('CREATE CATALOG')) {
+      return NextResponse.json({ error: 'SQL must be a CREATE EXTERNAL CATALOG statement' }, { status: 400 });
+    }
+
+    await executeQuery(sessionId, sql);
+
+    // Invalidate cache
+    try { setBlobCache('catalogs_cache', sessionId, null as unknown as Record<string, unknown>[]); } catch { /* ignore */ }
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      { status: 500 }
+    );
+  }
+}
+
+// DELETE: Drop a catalog
+export async function DELETE(request: NextRequest) {
+  try {
+    const { sessionId, catalogName } = await request.json();
+    if (!sessionId || !catalogName) {
+      return NextResponse.json({ error: 'sessionId and catalogName are required' }, { status: 400 });
+    }
+
+    if (catalogName === 'default_catalog') {
+      return NextResponse.json({ error: 'Cannot drop the default catalog' }, { status: 400 });
+    }
+
+    await executeQuery(sessionId, `DROP CATALOG \`${catalogName}\``);
+
+    // Invalidate cache
+    try { setBlobCache('catalogs_cache', sessionId, null as unknown as Record<string, unknown>[]); } catch { /* ignore */ }
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      { status: 500 }
+    );
+  }
+}

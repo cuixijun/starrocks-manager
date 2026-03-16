@@ -24,7 +24,8 @@ export async function createPool(config: StarRocksConnectionConfig): Promise<Poo
   // Close existing pool if any
   const existing = pools.get(sessionId);
   if (existing) {
-    await existing.end();
+    try { await existing.end(); } catch { /* ignore */ }
+    pools.delete(sessionId);
   }
 
   const poolOptions: PoolOptions = {
@@ -37,6 +38,8 @@ export async function createPool(config: StarRocksConnectionConfig): Promise<Poo
     connectionLimit: 5,
     queueLimit: 0,
     connectTimeout: 10000,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 30000,
   };
 
   const pool = mysql.createPool(poolOptions);
@@ -56,9 +59,25 @@ export function getPool(sessionId: string): Pool | undefined {
 export async function closePool(sessionId: string): Promise<void> {
   const pool = pools.get(sessionId);
   if (pool) {
-    await pool.end();
+    try { await pool.end(); } catch { /* ignore */ }
     pools.delete(sessionId);
   }
+}
+
+// Recreate pool from saved connection info
+async function recreatePool(sessionId: string): Promise<Pool | null> {
+  const connections = listConnections();
+  const conn = connections.find(c => getSessionId({ host: c.host, port: c.port || 9030, user: c.username, password: '' }) === sessionId);
+  if (conn) {
+    return createPool({
+      host: conn.host,
+      port: conn.port || 9030,
+      user: conn.username,
+      password: conn.password,
+      database: conn.default_db || undefined,
+    });
+  }
+  return null;
 }
 
 export async function executeQuery<T extends RowDataPacket[] = RowDataPacket[]>(
@@ -68,28 +87,45 @@ export async function executeQuery<T extends RowDataPacket[] = RowDataPacket[]>(
 ): Promise<{ rows: T; fields: { name: string; type: number }[] }> {
   let pool = getPool(sessionId);
   if (!pool) {
-    // Attempt auto-reconnect from local db if pool drops due to Next.js HMR
-    const connections = listConnections();
-    const conn = connections.find(c => getSessionId({ host: c.host, port: c.port || 9030, user: c.username, password: '' }) === sessionId);
-    if (conn) {
-      pool = await createPool({
-        host: conn.host,
-        port: conn.port || 9030,
-        user: conn.username,
-        password: conn.password,
-        database: conn.default_db || undefined,
-      });
-    } else {
+    // Attempt auto-reconnect from local db
+    pool = await recreatePool(sessionId) ?? undefined;
+    if (!pool) {
       throw new Error('Not connected. Please connect to a StarRocks instance first.');
     }
   }
 
-  const [rows, fields] = await pool.query<T>(sql, params);
+  // Try query, retry once on connection errors
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const [rows, fields] = await pool.query<T>(sql, params);
+      return {
+        rows,
+        fields: fields?.map(f => ({ name: f.name, type: f.type ?? 0 })) || [],
+      };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const isConnectionError = msg.includes('closed state') ||
+        msg.includes('ECONNRESET') ||
+        msg.includes('PROTOCOL_CONNECTION_LOST') ||
+        msg.includes('ECONNREFUSED') ||
+        msg.includes('Connection lost');
 
-  return {
-    rows,
-    fields: fields?.map(f => ({ name: f.name, type: f.type ?? 0 })) || [],
-  };
+      if (isConnectionError && attempt === 0) {
+        console.warn(`[Pool ${sessionId}] Connection error, recreating pool: ${msg}`);
+        // Remove dead pool and recreate
+        pools.delete(sessionId);
+        try { await pool.end(); } catch { /* ignore */ }
+        const newPool = await recreatePool(sessionId);
+        if (newPool) {
+          pool = newPool;
+          continue; // retry
+        }
+      }
+      throw err;
+    }
+  }
+
+  throw new Error('Query failed after retry');
 }
 
 export async function testConnection(config: StarRocksConnectionConfig): Promise<{

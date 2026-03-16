@@ -46,22 +46,25 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { sessionId, action, dbName, mvName } = await request.json();
+    const body = await request.json();
+    const { sessionId, action, dbName, mvName } = body;
     if (!sessionId) {
       return NextResponse.json({ error: 'Session ID required' }, { status: 400 });
     }
 
+    const fullName = dbName && mvName ? `\`${dbName}\`.\`${mvName}\`` : mvName ? `\`${mvName}\`` : '';
+
     if (action === 'refresh') {
-      if (!mvName) return NextResponse.json({ error: 'MV name required' }, { status: 400 });
-      const fullName = dbName ? `\`${dbName}\`.\`${mvName}\`` : `\`${mvName}\``;
+      if (!fullName) return NextResponse.json({ error: 'MV name required' }, { status: 400 });
       await executeQuery(sessionId, `REFRESH MATERIALIZED VIEW ${fullName}`);
       return NextResponse.json({ success: true });
     }
 
     if (action === 'drop') {
-      if (!mvName) return NextResponse.json({ error: 'MV name required' }, { status: 400 });
-      const fullName = dbName ? `\`${dbName}\`.\`${mvName}\`` : `\`${mvName}\``;
+      if (!fullName) return NextResponse.json({ error: 'MV name required' }, { status: 400 });
       await executeQuery(sessionId, `DROP MATERIALIZED VIEW ${fullName}`);
+      // Invalidate cache
+      try { setBlobCache('materialized_views_cache', sessionId, null as unknown as Record<string, unknown>[]); } catch { /* ignore */ }
       return NextResponse.json({ success: true });
     }
 
@@ -71,6 +74,45 @@ export async function POST(request: NextRequest) {
       const row = (result.rows as Record<string, unknown>[])[0];
       const definition = row ? String(row['Create Materialized View'] || row['Create Table'] || Object.values(row)[1] || '') : '';
       return NextResponse.json({ definition });
+    }
+
+    if (action === 'alter_active') {
+      if (!fullName) return NextResponse.json({ error: 'MV name required' }, { status: 400 });
+      const active = body.active === true || body.active === 'true';
+      await executeQuery(sessionId, `ALTER MATERIALIZED VIEW ${fullName} ${active ? 'ACTIVE' : 'INACTIVE'}`);
+      // Invalidate cache
+      try { setBlobCache('materialized_views_cache', sessionId, null as unknown as Record<string, unknown>[]); } catch { /* ignore */ }
+      return NextResponse.json({ success: true });
+    }
+
+    if (action === 'alter_refresh') {
+      if (!fullName) return NextResponse.json({ error: 'MV name required' }, { status: 400 });
+      const interval = body.interval; // e.g. "INTERVAL 1 HOUR"
+      if (!interval) return NextResponse.json({ error: 'interval is required' }, { status: 400 });
+      await executeQuery(sessionId, `ALTER MATERIALIZED VIEW ${fullName} REFRESH ASYNC EVERY(${interval})`);
+      try { setBlobCache('materialized_views_cache', sessionId, null as unknown as Record<string, unknown>[]); } catch { /* ignore */ }
+      return NextResponse.json({ success: true });
+    }
+
+    if (action === 'alter_resource_group') {
+      if (!fullName) return NextResponse.json({ error: 'MV name required' }, { status: 400 });
+      const resourceGroup = body.resourceGroup;
+      if (!resourceGroup) return NextResponse.json({ error: 'resourceGroup is required' }, { status: 400 });
+      await executeQuery(sessionId, `ALTER MATERIALIZED VIEW ${fullName} SET ('resource_group' = '${resourceGroup}')`);
+      try { setBlobCache('materialized_views_cache', sessionId, null as unknown as Record<string, unknown>[]); } catch { /* ignore */ }
+      return NextResponse.json({ success: true });
+    }
+
+    if (action === 'create') {
+      const sql = body.sql;
+      if (!sql) return NextResponse.json({ error: 'SQL is required' }, { status: 400 });
+      const trimmed = sql.trim().toUpperCase();
+      if (!trimmed.startsWith('CREATE MATERIALIZED VIEW') && !trimmed.startsWith('CREATE')) {
+        return NextResponse.json({ error: 'SQL must be a CREATE MATERIALIZED VIEW statement' }, { status: 400 });
+      }
+      await executeQuery(sessionId, sql);
+      try { setBlobCache('materialized_views_cache', sessionId, null as unknown as Record<string, unknown>[]); } catch { /* ignore */ }
+      return NextResponse.json({ success: true });
     }
 
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 });

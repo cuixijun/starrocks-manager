@@ -13,13 +13,14 @@ export async function GET(
 
     const { db, table } = await params;
     const fullName = `\`${db}\`.\`${table}\``;
+    const limit = Math.min(Math.max(parseInt(request.nextUrl.searchParams.get('limit') || '10', 10) || 10, 1), 1000);
 
     // Fetch multiple details in parallel
     const [schema, createTable, partitions, preview] = await Promise.all([
       executeQuery(sessionId, `DESC ${fullName}`).catch(() => ({ rows: [], fields: [] })),
       executeQuery(sessionId, `SHOW CREATE TABLE ${fullName}`).catch(() => ({ rows: [], fields: [] })),
       executeQuery(sessionId, `SHOW PARTITIONS FROM ${fullName}`).catch(() => ({ rows: [], fields: [] })),
-      executeQuery(sessionId, `SELECT * FROM ${fullName} LIMIT 50`).catch(() => ({ rows: [], fields: [] })),
+      executeQuery(sessionId, `SELECT * FROM ${fullName} LIMIT ${limit}`).catch(() => ({ rows: [], fields: [] })),
     ]);
 
     // Extract DDL

@@ -2,9 +2,12 @@
 
 import React, { useState, useEffect } from 'react';
 import { useSession } from '@/hooks/useSession';
+import { usePagination } from '@/hooks/usePagination';
+import { Pagination } from '@/components/ui';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Search, Table2, RefreshCw, Clock, Hash } from 'lucide-react';
+import { ArrowLeft, Search, Table2, RefreshCw } from 'lucide-react';
+import Breadcrumb from '@/components/Breadcrumb';
 
 interface TableInfo {
   TABLE_NAME: string;
@@ -29,6 +32,14 @@ function formatBytes(bytes: number | null): string {
 function formatNumber(n: number | null): string {
   if (n === null || n === undefined) return '-';
   return n.toLocaleString();
+}
+
+function formatDateTime(s: string | null | undefined): string {
+  if (!s) return '-';
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return s; // fallback to raw string
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 export default function DatabaseDetailPage() {
@@ -64,18 +75,19 @@ export default function DatabaseDetailPage() {
     t.TABLE_NAME.toLowerCase().includes(search.toLowerCase())
   );
 
+  const pg = usePagination(filtered);
+
   return (
     <>
       <div className="page-header">
+        <Breadcrumb items={[
+          { label: '数据库浏览', href: '/databases' },
+          { label: db },
+        ]} />
         <div className="page-header-row">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <Link href="/databases" className="btn btn-ghost btn-icon">
-              <ArrowLeft size={18} />
-            </Link>
-            <div>
-              <h1 className="page-title">{db}</h1>
-              <p className="page-description">{tables.length} 张表</p>
-            </div>
+          <div>
+            <h1 className="page-title">{db}</h1>
+            <p className="page-description">{tables.length} 张表</p>
           </div>
           <button className="btn btn-secondary" onClick={fetchTables}>
             <RefreshCw size={16} /> 刷新
@@ -107,49 +119,65 @@ export default function DatabaseDetailPage() {
             <table>
               <thead>
                 <tr>
+                  <th style={{ width: '48px', textAlign: 'center' }}>#</th>
                   <th>表名</th>
                   <th>类型</th>
                   <th>引擎</th>
-                  <th>行数</th>
-                  <th>数据大小</th>
+                  <th style={{ textAlign: 'right' }}>行数</th>
+                  <th style={{ textAlign: 'right' }}>数据大小</th>
                   <th>创建时间</th>
                   <th>更新时间</th>
                   <th>注释</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(t => (
-                  <tr key={t.TABLE_NAME}>
-                    <td>
-                      <Link
-                        href={`/databases/${encodeURIComponent(db)}/${encodeURIComponent(t.TABLE_NAME)}`}
-                        style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: '6px' }}
-                      >
-                        <Table2 size={14} />
-                        {t.TABLE_NAME}
-                      </Link>
-                    </td>
-                    <td>
-                      <span className={`badge ${t.TABLE_TYPE === 'BASE TABLE' ? 'badge-info' : 'badge-neutral'}`}>
-                        {t.TABLE_TYPE === 'BASE TABLE' ? '表' : t.TABLE_TYPE}
-                      </span>
-                    </td>
-                    <td className="text-xs">{t.ENGINE || '-'}</td>
-                    <td className="text-right">
-                      <span className="flex items-center gap-2" style={{ justifyContent: 'flex-end' }}>
-                        <Hash size={12} /> {formatNumber(t.TABLE_ROWS)}
-                      </span>
-                    </td>
-                    <td className="text-right">{formatBytes(t.DATA_LENGTH)}</td>
-                    <td className="text-xs">
-                      <span className="flex items-center gap-2"><Clock size={12} />{t.CREATE_TIME || '-'}</span>
-                    </td>
-                    <td className="text-xs">{t.UPDATE_TIME || '-'}</td>
-                    <td className="text-xs text-secondary truncate" style={{ maxWidth: '200px' }}>{t.TABLE_COMMENT || '-'}</td>
-                  </tr>
-                ))}
+                {pg.paginatedData.map((t, idx) => {
+                  const globalIdx = (pg.page - 1) * pg.pageSize + idx;
+                  return (
+                    <tr key={t.TABLE_NAME}>
+                      <td style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.78rem' }}>
+                        {globalIdx + 1}
+                      </td>
+                      <td>
+                        <Link
+                          href={`/databases/${encodeURIComponent(db)}/${encodeURIComponent(t.TABLE_NAME)}`}
+                          style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: '6px' }}
+                        >
+                          <Table2 size={14} />
+                          {t.TABLE_NAME}
+                        </Link>
+                      </td>
+                      <td>
+                        <span className={`badge ${t.TABLE_TYPE === 'BASE TABLE' ? 'badge-info' : 'badge-neutral'}`}>
+                          {t.TABLE_TYPE === 'BASE TABLE' ? '表' : t.TABLE_TYPE}
+                        </span>
+                      </td>
+                      <td className="text-xs">{t.ENGINE || '-'}</td>
+                      <td className="text-right" style={{ textAlign: 'right' }}>
+                        {formatNumber(t.TABLE_ROWS)}
+                      </td>
+                      <td className="text-right" style={{ textAlign: 'right' }}>{formatBytes(t.DATA_LENGTH)}</td>
+                      <td className="text-xs" style={{ whiteSpace: 'nowrap' }}>{formatDateTime(t.CREATE_TIME)}</td>
+                      <td className="text-xs" style={{ whiteSpace: 'nowrap' }}>{formatDateTime(t.UPDATE_TIME)}</td>
+                      <td className="text-xs text-secondary truncate" style={{ maxWidth: '200px' }}>{t.TABLE_COMMENT || '-'}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
+
+            {/* Footer with count + pagination */}
+            <div style={{
+              padding: '10px 16px', borderTop: '1px solid var(--border-secondary)',
+              fontSize: '0.78rem', color: 'var(--text-tertiary)',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px',
+            }}>
+              <span>
+                共 <strong style={{ color: 'var(--text-secondary)' }}>{filtered.length}</strong> 张表
+                {search && ` (过滤自 ${tables.length} 张)`}
+              </span>
+              <Pagination page={pg.page} pageSize={pg.pageSize} totalPages={pg.totalPages} totalItems={pg.totalItems} onPageChange={pg.setPage} onPageSizeChange={pg.setPageSize} />
+            </div>
           </div>
         )}
       </div>
