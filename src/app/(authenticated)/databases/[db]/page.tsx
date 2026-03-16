@@ -6,7 +6,7 @@ import { usePagination } from '@/hooks/usePagination';
 import { Pagination } from '@/components/ui';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Search, Table2, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Search, Table2, RefreshCw, Eye, Layers } from 'lucide-react';
 import Breadcrumb from '@/components/Breadcrumb';
 
 interface TableInfo {
@@ -50,6 +50,7 @@ export default function DatabaseDetailPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [error, setError] = useState('');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'BASE TABLE' | 'VIEW' | 'MATERIALIZED VIEW'>('all');
 
   useEffect(() => {
     if (!session) return;
@@ -71,9 +72,16 @@ export default function DatabaseDetailPage() {
     }
   }
 
-  const filtered = tables.filter(t =>
-    t.TABLE_NAME.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = tables.filter(t => {
+    const matchesSearch = t.TABLE_NAME.toLowerCase().includes(search.toLowerCase());
+    const matchesType = typeFilter === 'all' || t.TABLE_TYPE === typeFilter;
+    return matchesSearch && matchesType;
+  });
+
+  // Count by type
+  const tableCountNum = tables.filter(t => t.TABLE_TYPE === 'BASE TABLE').length;
+  const viewCountNum = tables.filter(t => t.TABLE_TYPE === 'VIEW').length;
+  const mvCountNum = tables.filter(t => t.TABLE_TYPE === 'MATERIALIZED VIEW').length;
 
   const pg = usePagination(filtered);
 
@@ -87,7 +95,9 @@ export default function DatabaseDetailPage() {
         <div className="page-header-row">
           <div>
             <h1 className="page-title">{db}</h1>
-            <p className="page-description">{tables.length} 张表</p>
+            <p className="page-description">
+              {tableCountNum} 张表 · {viewCountNum} 个视图 · {mvCountNum} 个物化视图
+            </p>
           </div>
           <button className="btn btn-secondary" onClick={fetchTables}>
             <RefreshCw size={16} /> 刷新
@@ -102,9 +112,42 @@ export default function DatabaseDetailPage() {
           </div>
         )}
 
-        <div className="search-bar mb-4">
-          <Search />
-          <input className="input" placeholder="搜索表名..." value={search} onChange={e => setSearch(e.target.value)} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }} className="mb-4">
+          <div className="search-bar" style={{ flex: 1, minWidth: '200px', marginBottom: 0 }}>
+            <Search />
+            <input className="input" placeholder="搜索表名..." value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
+          <div style={{ display: 'flex', gap: '4px' }}>
+            {[
+              { key: 'all' as const, label: '全部', count: tables.length, color: 'var(--primary-600)', bg: 'var(--primary-50)', border: 'var(--primary-100)' },
+              { key: 'BASE TABLE' as const, label: '表', count: tableCountNum, color: 'var(--primary-600)', bg: 'var(--primary-50)', border: 'var(--primary-100)', icon: <Table2 size={12} /> },
+              { key: 'VIEW' as const, label: '视图', count: viewCountNum, color: '#8b5cf6', bg: 'rgba(139,92,246,0.08)', border: 'rgba(139,92,246,0.2)', icon: <Eye size={12} /> },
+              { key: 'MATERIALIZED VIEW' as const, label: '物化视图', count: mvCountNum, color: '#ca8a04', bg: 'rgba(234,179,8,0.08)', border: 'rgba(234,179,8,0.2)', icon: <Layers size={12} /> },
+            ].map(f => (
+              <button
+                key={f.key}
+                onClick={() => setTypeFilter(f.key)}
+                style={{
+                  padding: '4px 10px', borderRadius: '999px', fontSize: '0.76rem',
+                  border: `1px solid ${typeFilter === f.key ? f.border : 'var(--border-secondary)'}`,
+                  backgroundColor: typeFilter === f.key ? f.bg : 'transparent',
+                  color: typeFilter === f.key ? f.color : 'var(--text-tertiary)',
+                  cursor: 'pointer', transition: 'all 0.15s',
+                  display: 'inline-flex', alignItems: 'center', gap: '4px',
+                  fontWeight: typeFilter === f.key ? 600 : 400,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {f.icon}
+                {f.label}
+                <span style={{
+                  fontSize: '0.7rem',
+                  opacity: typeFilter === f.key ? 1 : 0.6,
+                  marginLeft: '2px',
+                }}>{f.count}</span>
+              </button>
+            ))}
+          </div>
         </div>
 
         {loading ? (
