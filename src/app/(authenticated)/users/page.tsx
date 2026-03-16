@@ -694,13 +694,13 @@ export default function UsersPage() {
 
           return (
             <div className="modal-overlay" onClick={() => setShowRoleAssign(null)}>
-              <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '820px', padding: 0 }}>
+              <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '820px', padding: 0, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
                 <div style={{ padding: '16px 20px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div className="modal-title">角色分配 — {showRoleAssign}</div>
                   <button className="btn-ghost btn-icon" onClick={() => setShowRoleAssign(null)}><X size={18} /></button>
                 </div>
 
-                <div style={{ padding: '0 20px 12px' }}>
+                <div style={{ padding: '0 20px 12px', overflowY: 'auto', flex: 1, minHeight: 0 }}>
                   <div className="transfer-container">
                     {/* Left Panel - Available Roles */}
                     <div className="transfer-panel">
@@ -860,7 +860,7 @@ export default function UsersPage() {
                         <span style={{ fontSize: '0.74rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{previewTab} 权限预览</span>
                         <button className="btn-ghost btn-icon" style={{ marginLeft: 'auto', padding: '2px' }} onClick={() => setPreviewTab('')}><X size={14} /></button>
                       </div>
-                      <div style={{ maxHeight: '180px', overflowY: 'auto', padding: '8px' }}>
+                      <div style={{ maxHeight: '150px', overflowY: 'auto', padding: '8px' }}>
                         {rolePrivLoading ? (
                           <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.8rem' }}>
                             <div className="spinner" style={{ width: '18px', height: '18px', margin: '0 auto 6px' }} />加载中...
