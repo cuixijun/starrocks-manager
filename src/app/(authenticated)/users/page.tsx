@@ -417,32 +417,55 @@ export default function UsersPage() {
 
                       {/* Actions */}
                       <td>
-                        <div style={{ display: 'flex', gap: '2px', justifyContent: 'center' }}>
+                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center' }}>
                           <button
-                            className="btn btn-ghost btn-icon"
-                            style={{ color: 'var(--primary-600)' }}
                             onClick={() => setShowGrant(u.identity)}
                             title="授权"
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: '4px',
+                              padding: '3px 10px', borderRadius: '6px', fontSize: '0.75rem',
+                              border: '1px solid var(--primary-200)',
+                              backgroundColor: 'var(--primary-50)',
+                              color: 'var(--primary-600)',
+                              cursor: 'pointer', transition: 'all 0.15s',
+                              fontWeight: 500, whiteSpace: 'nowrap',
+                            }}
                           >
-                            <Shield size={14} />
+                            <Shield size={12} /> 授权
                           </button>
                           <button
-                            className="btn btn-ghost btn-icon"
-                            style={{ color: 'var(--success-600)' }}
                             onClick={() => setShowRoleAssign(u.identity)}
                             title="分配角色"
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: '4px',
+                              padding: '3px 10px', borderRadius: '6px', fontSize: '0.75rem',
+                              border: '1px solid var(--border-secondary)',
+                              backgroundColor: 'transparent',
+                              color: 'var(--text-secondary)',
+                              cursor: 'pointer', transition: 'all 0.15s',
+                              fontWeight: 500, whiteSpace: 'nowrap',
+                            }}
                           >
-                            <UserPlus size={14} />
+                            <UserPlus size={12} /> 角色
                           </button>
                           {!isSystem && (
-                            <button
-                              className="btn btn-ghost btn-icon"
-                              style={{ color: 'var(--danger-500)' }}
-                              onClick={() => handleDelete(u.identity)}
-                              title="删除用户"
-                            >
-                              <Trash2 size={14} />
-                            </button>
+                            <>
+                              <span style={{ width: '1px', height: '16px', backgroundColor: 'var(--border-secondary)', margin: '0 2px' }} />
+                              <button
+                                className="btn btn-ghost btn-icon"
+                                style={{
+                                  color: 'var(--text-tertiary)',
+                                  padding: '4px', borderRadius: '6px',
+                                  transition: 'all 0.15s',
+                                }}
+                                onClick={() => handleDelete(u.identity)}
+                                title="删除用户"
+                                onMouseEnter={e => { e.currentTarget.style.color = 'var(--danger-500)'; e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.08)'; }}
+                                onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </>
                           )}
                         </div>
                       </td>
