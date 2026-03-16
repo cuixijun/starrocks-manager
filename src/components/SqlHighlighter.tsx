@@ -209,11 +209,16 @@ function formatSql(raw: string): string {
   let propertiesParenDepth = -1;
   let lineStart = true;
   let parenCount = 0;    // raw paren nesting count
+  let beforeAs = true;   // true until we see AS (before query body)
+  let currentLineLen = 0; // track current line length
+  const MAX_LINE = 100;  // max line width before forcing breaks
 
   function newline() {
     out.push('\n');
-    out.push(INDENT.repeat(depth));
+    const indent = INDENT.repeat(depth);
+    out.push(indent);
     lineStart = true;
+    currentLineLen = indent.length;
   }
 
   function space() {
@@ -221,8 +226,21 @@ function formatSql(raw: string): string {
       const last = out[out.length - 1];
       if (last && !last.endsWith(' ') && !last.endsWith('\n')) {
         out.push(' ');
+        currentLineLen++;
       }
     }
+  }
+
+  function emit(s: string) {
+    out.push(s);
+    // update line length (only count chars after last newline in s)
+    const nlIdx = s.lastIndexOf('\n');
+    if (nlIdx >= 0) {
+      currentLineLen = s.length - nlIdx - 1;
+    } else {
+      currentLineLen += s.length;
+    }
+    lineStart = false;
   }
 
   function peekUpper(offset: number): string {
@@ -282,56 +300,51 @@ function formatSql(raw: string): string {
     // ---- Inline comments: emit on same line ----
     if (tok.startsWith('--')) {
       space();
-      out.push(tok);
+      emit(tok);
       continue;
     }
     if (tok.startsWith('/*')) {
       space();
-      out.push(tok);
+      emit(tok);
       continue;
     }
 
     // ---- PROPERTIES block handling ----
     if (upper === 'PROPERTIES') {
       newline();
-      out.push(tok);
-      lineStart = false;
+      emit(tok);
       inProperties = true;
       continue;
     }
 
     if (inProperties && tok === '(') {
       space();
-      out.push('(');
+      emit('(');
       propertiesParenDepth = depth;
       depth++;
       newline();
-      lineStart = true;
       continue;
     }
 
     if (inProperties && tok === ')' && propertiesParenDepth >= 0) {
       depth = propertiesParenDepth;
       newline();
-      out.push(')');
-      lineStart = false;
+      emit(')');
       inProperties = false;
       propertiesParenDepth = -1;
       continue;
     }
 
     if (inProperties && tok === ',') {
-      out.push(',');
+      emit(',');
       newline();
-      lineStart = true;
       continue;
     }
 
     // ---- PARTITION BY (compound on same line as previous) ----
     if (upper === 'PARTITION') {
       newline();
-      out.push(tok);
-      lineStart = false;
+      emit(tok);
       continue;
     }
 
@@ -340,31 +353,25 @@ function formatSql(raw: string): string {
       const prev = prevUpper();
       // GROUP BY, ORDER BY, PARTITION BY, DISTRIBUTED BY
       if (upper === 'BY' && ['GROUP', 'ORDER', 'PARTITION', 'DISTRIBUTED'].includes(prev)) {
-        space(); out.push(tok); lineStart = false; continue;
+        space(); emit(tok); continue;
       }
-      // LEFT JOIN, RIGHT JOIN, etc.
       if (upper === 'JOIN' && JOIN_KEYWORDS.has(prev)) {
-        space(); out.push(tok); lineStart = false; continue;
+        space(); emit(tok); continue;
       }
-      // LEFT OUTER, RIGHT OUTER
       if (upper === 'OUTER' && JOIN_KEYWORDS.has(prev)) {
-        space(); out.push(tok); lineStart = false; continue;
+        space(); emit(tok); continue;
       }
-      // UNION ALL
       if (upper === 'ALL' && prev === 'UNION') {
-        space(); out.push(tok); lineStart = false; continue;
+        space(); emit(tok); continue;
       }
-      // SELECT DISTINCT
       if (upper === 'DISTINCT' && prev === 'SELECT') {
-        space(); out.push(tok); lineStart = false; continue;
+        space(); emit(tok); continue;
       }
-      // REFRESH ASYNC, REFRESH SYNC, REFRESH MANUAL
       if (['ASYNC', 'SYNC', 'MANUAL'].includes(upper) && prev === 'REFRESH') {
-        space(); out.push(tok); lineStart = false; continue;
+        space(); emit(tok); continue;
       }
-      // CREATE MATERIALIZED
       if (upper === 'MATERIALIZED' && prev === 'CREATE') {
-        space(); out.push(tok); lineStart = false; continue;
+        space(); emit(tok); continue;
       }
       // fall through if not compound
     }
@@ -373,31 +380,26 @@ function formatSql(raw: string): string {
     if (TOP_CLAUSES.has(upper) && !inProperties) {
       // COMMENT: only treat as top-level clause when not inside parens (column defs)
       if (upper === 'COMMENT' && parenCount > 0) {
-        space(); out.push(tok); lineStart = false; continue;
+        space(); emit(tok); continue;
       }
       if (upper === 'AS') {
-        // Only treat AS as top-level clause after PROPERTIES / before SELECT
-        // Not the column alias AS
         if (next === 'SELECT' || next === '(') {
+          beforeAs = false;
           newline();
-          out.push(tok);
-          lineStart = false;
+          emit(tok);
           continue;
         }
-        // Otherwise it's a column alias — stay inline
-        space(); out.push(tok); lineStart = false; continue;
+        space(); emit(tok); continue;
       }
       newline();
-      out.push(tok);
-      lineStart = false;
+      emit(tok);
       continue;
     }
 
     // ---- GROUP, ORDER: start new line ----
     if ((upper === 'GROUP' || upper === 'ORDER') && next === 'BY') {
       newline();
-      out.push(tok);
-      lineStart = false;
+      emit(tok);
       continue;
     }
 
@@ -405,8 +407,7 @@ function formatSql(raw: string): string {
     if (SUB_CLAUSES.has(upper)) {
       if (upper === 'SELECT') {
         newline();
-        out.push(tok);
-        lineStart = false;
+        emit(tok);
         inSelect = true;
         selectDepth = depth;
         continue;
@@ -414,14 +415,12 @@ function formatSql(raw: string): string {
       if (upper === 'FROM' || upper === 'WHERE' || upper === 'HAVING' || upper === 'LIMIT' || upper === 'OFFSET') {
         inSelect = false;
         newline();
-        out.push(tok);
-        lineStart = false;
+        emit(tok);
         continue;
       }
       // UNION, EXCEPT, INTERSECT
       newline();
-      out.push(tok);
-      lineStart = false;
+      emit(tok);
       continue;
     }
 
@@ -429,34 +428,45 @@ function formatSql(raw: string): string {
     if (JOIN_KEYWORDS.has(upper) && next === 'JOIN') {
       inSelect = false;
       newline();
-      out.push(tok);
-      lineStart = false;
+      emit(tok);
       continue;
     }
     // bare JOIN
     if (upper === 'JOIN' && !JOIN_KEYWORDS.has(prevUpper())) {
       inSelect = false;
       newline();
-      out.push(tok);
-      lineStart = false;
+      emit(tok);
       continue;
     }
 
     // ---- AND / OR in WHERE clause ----
     if ((upper === 'AND' || upper === 'OR') && !inSelect && depth === selectDepth) {
       newline();
-      out.push(INDENT); // extra indent under WHERE
-      out.push(tok);
-      lineStart = false;
+      emit(INDENT + tok);
       continue;
     }
 
-    // ---- Comma in SELECT: new line for next column ----
-    if (tok === ',' && inSelect && depth === selectDepth) {
-      out.push(',');
-      newline();
-      out.push(INDENT); // columns at depth + 1 indent
-      lineStart = true;
+    // ---- Comma handling ----
+    if (tok === ',') {
+      emit(',');
+      // SELECT columns: always break at comma
+      if (inSelect && depth === selectDepth) {
+        newline();
+        emit(INDENT);
+        continue;
+      }
+      // CREATE column definitions (before AS, inside parens): break at comma
+      if (beforeAs && parenCount > 0 && !inProperties) {
+        newline();
+        emit(INDENT);
+        continue;
+      }
+      // General: break if line is getting too long
+      if (currentLineLen > MAX_LINE) {
+        newline();
+        emit(INDENT);
+        continue;
+      }
       continue;
     }
 
@@ -466,55 +476,51 @@ function formatSql(raw: string): string {
       // If next is SELECT → subquery, increase depth
       if (next === 'SELECT') {
         space();
-        out.push('(');
+        emit('(');
         depth++;
         continue;
       }
       // else function call paren or PROPERTIES — stay inline
       if (!lineStart && out.length > 0) {
         const last = out[out.length - 1];
-        // No space before paren if previous is a word (function call)
         if (last && /[a-zA-Z0-9_`]$/.test(last.trim())) {
-          // no space
+          // no space before function call paren
         } else {
           space();
         }
       }
-      out.push('(');
-      lineStart = false;
+      emit('(');
       continue;
     }
 
     // ---- Closing paren ----
     if (tok === ')') {
       if (parenCount > 0) parenCount--;
-      // Check if we're closing a subquery
       if (depth > 0) {
         depth--;
         if (inSelect && depth < selectDepth) {
           inSelect = false;
         }
       }
-      out.push(')');
-      lineStart = false;
+      emit(')');
       continue;
     }
 
     // ---- Semicolon ----
     if (tok === ';') {
-      out.push(';');
+      emit(';');
       newline();
       depth = 0;
       inSelect = false;
       selectDepth = -1;
+      beforeAs = true;
       continue;
     }
 
     // ---- ON (after JOIN) ----
     if (upper === 'ON' && !inSelect) {
       space();
-      out.push(tok);
-      lineStart = false;
+      emit(tok);
       continue;
     }
 
@@ -522,8 +528,7 @@ function formatSql(raw: string): string {
     if (!lineStart) {
       space();
     }
-    out.push(tok);
-    lineStart = false;
+    emit(tok);
   }
 
   let formatted = out.join('');
