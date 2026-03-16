@@ -332,12 +332,7 @@ export default function MVDetailPage() {
             {/* ========== DDL Tab ========== */}
             {activeTab === 'ddl' && (
               <div className="card fade-in">
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '8px' }}>
-                  <button className="btn btn-secondary btn-sm" onClick={copyDdl}>
-                    {copied ? <><Check size={14} /> 已复制</> : <><Copy size={14} /> 复制</>}
-                  </button>
-                </div>
-                <SqlHighlighter sql={ddl || '无法获取 DDL'} />
+                <SqlHighlighter sql={ddl || '无法获取 DDL'} onCopy={copyDdl} copied={copied} />
               </div>
             )}
 
