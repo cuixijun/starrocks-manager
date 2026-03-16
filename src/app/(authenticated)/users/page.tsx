@@ -94,24 +94,26 @@ export default function UsersPage() {
     if (success) { const t = setTimeout(() => setSuccess(''), 3000); return () => clearTimeout(t); }
   }, [success]);
 
-  // Fetch all roles when the role assignment modal opens
+  // Fetch all roles when the role assignment modal opens (only if not already cached)
   useEffect(() => {
     if (showRoleAssign && session) {
       setRoleNameInput('');
-      setRolePrivCache({});
       setPreviewTab('');
-      fetch(`/api/roles?sessionId=${encodeURIComponent(session.sessionId)}`)
-        .then(r => r.json())
-        .then(data => {
-          if (!data.error) {
-            const names: string[] = (data.roles || []).map((r: Record<string, unknown>) =>
-              String(r['Name'] || r['name'] || r['Value'] || Object.values(r)[0] || '')
-            );
-            setAllRoles(names);
-          }
-        });
+      // Only fetch roles list if not already loaded
+      if (allRoles.length === 0) {
+        fetch(`/api/roles?sessionId=${encodeURIComponent(session.sessionId)}`)
+          .then(r => r.json())
+          .then(data => {
+            if (!data.error) {
+              const names: string[] = (data.roles || []).map((r: Record<string, unknown>) =>
+                String(r['Name'] || r['name'] || r['Value'] || Object.values(r)[0] || '')
+              );
+              setAllRoles(names);
+            }
+          });
+      }
     }
-  }, [showRoleAssign, session]);
+  }, [showRoleAssign, session]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleCreate() {
     if (!session || !form.username) return;
