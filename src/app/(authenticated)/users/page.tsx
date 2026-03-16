@@ -807,10 +807,10 @@ export default function UsersPage() {
                               <Eye size={18} style={{ color: 'var(--primary-500)' }} />
                             </div>
                             <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--primary-600)' }}>
-                              查看已分配角色的权限
+                              点击加载权限详情
                             </div>
                             <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>
-                              点击此处或上方标签，查看各角色拥有的权限明细
+                              立即查看当前角色拥有的所有权限
                             </div>
                           </div>
                         ) : cachedPriv.grants.length === 0 ? (
