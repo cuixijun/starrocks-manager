@@ -46,6 +46,8 @@ export function getLocalDb(): Database.Database {
       connection_id TEXT NOT NULL,
       db_name      TEXT NOT NULL,
       table_count  INTEGER NOT NULL DEFAULT 0,
+      view_count   INTEGER NOT NULL DEFAULT 0,
+      mv_count     INTEGER NOT NULL DEFAULT 0,
       cached_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(connection_id, db_name)
     );
@@ -226,6 +228,8 @@ export interface DbCacheEntry {
   connection_id: string;
   db_name: string;
   table_count: number;
+  view_count: number;
+  mv_count: number;
   cached_at: string;
 }
 
@@ -244,14 +248,23 @@ export function getDbCache(connectionId: string): DbCacheEntry[] {
 
 export function upsertDbCache(
   connectionId: string,
-  databases: { name: string; tableCount: number }[]
+  databases: { name: string; tableCount: number; viewCount: number; mvCount: number }[]
 ): void {
   const db = getLocalDb();
+
+  // Migrate: add view_count and mv_count columns if missing
+  try {
+    db.prepare('SELECT view_count FROM db_metadata_cache LIMIT 0').run();
+  } catch {
+    db.exec('ALTER TABLE db_metadata_cache ADD COLUMN view_count INTEGER NOT NULL DEFAULT 0');
+    db.exec('ALTER TABLE db_metadata_cache ADD COLUMN mv_count INTEGER NOT NULL DEFAULT 0');
+  }
+
   const upsert = db.prepare(`
-    INSERT INTO db_metadata_cache (connection_id, db_name, table_count, cached_at)
-    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+    INSERT INTO db_metadata_cache (connection_id, db_name, table_count, view_count, mv_count, cached_at)
+    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     ON CONFLICT(connection_id, db_name)
-    DO UPDATE SET table_count = excluded.table_count, cached_at = CURRENT_TIMESTAMP
+    DO UPDATE SET table_count = excluded.table_count, view_count = excluded.view_count, mv_count = excluded.mv_count, cached_at = CURRENT_TIMESTAMP
   `);
   const deleteOld = db.prepare(
     'DELETE FROM db_metadata_cache WHERE connection_id = ? AND db_name NOT IN (SELECT value FROM json_each(?))'
@@ -259,7 +272,7 @@ export function upsertDbCache(
 
   const txn = db.transaction(() => {
     for (const d of databases) {
-      upsert.run(connectionId, d.name, d.tableCount);
+      upsert.run(connectionId, d.name, d.tableCount, d.viewCount, d.mvCount);
     }
     // Remove stale entries (databases that were dropped)
     const names = JSON.stringify(databases.map(d => d.name));

@@ -7,12 +7,14 @@ import { Pagination } from '@/components/ui';
 import Breadcrumb from '@/components/Breadcrumb';
 import Link from 'next/link';
 import {
-  Database, Search, Table2, RefreshCw, ChevronUp, ChevronDown, ChevronsUpDown, ArrowRight, Clock
+  Database, Search, Table2, RefreshCw, ChevronUp, ChevronDown, ChevronsUpDown, ArrowRight, Clock, Eye, Layers
 } from 'lucide-react';
 
 interface DbInfo {
   name: string;
   tableCount: number;
+  viewCount: number;
+  mvCount: number;
   cachedAt?: string;
 }
 
@@ -53,8 +55,11 @@ export default function DatabasesPage() {
           ? new Date(data.cachedAt).toLocaleString('zh-CN', { hour12: false })
           : new Date().toLocaleString('zh-CN', { hour12: false });
         setDatabases(
-          (data.databases || []).map((d: { name: string; tableCount: number }) => ({
-            ...d,
+          (data.databases || []).map((d: { name: string; tableCount: number; viewCount?: number; mvCount?: number }) => ({
+            name: d.name,
+            tableCount: d.tableCount ?? 0,
+            viewCount: d.viewCount ?? 0,
+            mvCount: d.mvCount ?? 0,
             cachedAt: ts,
           }))
         );
@@ -165,9 +170,19 @@ export default function DatabasesPage() {
                       数据库名 <SortIcon col="name" sortKey={sortKey} sortDir={sortDir} />
                     </span>
                   </th>
-                  <th style={{ ...thStyle, textAlign: 'right' }} onClick={() => toggleSort('tableCount')}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', float: 'right' }}>
-                      <Table2 size={13} /> 表数量 <SortIcon col="tableCount" sortKey={sortKey} sortDir={sortDir} />
+                  <th style={{ ...thStyle, textAlign: 'center' }} onClick={() => toggleSort('tableCount')}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', justifyContent: 'center' }}>
+                      <Table2 size={13} /> 表 <SortIcon col="tableCount" sortKey={sortKey} sortDir={sortDir} />
+                    </span>
+                  </th>
+                  <th style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', justifyContent: 'center' }}>
+                      <Eye size={13} /> 视图
+                    </span>
+                  </th>
+                  <th style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', justifyContent: 'center' }}>
+                      <Layers size={13} /> 物化视图
                     </span>
                   </th>
                   <th style={{ whiteSpace: 'nowrap' }}>
@@ -210,17 +225,44 @@ export default function DatabasesPage() {
                     </td>
 
                     {/* Table count */}
-                    <td style={{ textAlign: 'right' }}>
+                    <td style={{ textAlign: 'center' }}>
                       <span style={{
-                        display: 'inline-flex', alignItems: 'center', gap: '5px',
-                        padding: '3px 10px', borderRadius: '999px',
+                        display: 'inline-flex', alignItems: 'center', gap: '4px',
+                        padding: '2px 8px', borderRadius: '999px',
                         backgroundColor: db.tableCount > 0 ? 'var(--primary-50)' : 'var(--bg-secondary)',
                         color: db.tableCount > 0 ? 'var(--primary-600)' : 'var(--text-tertiary)',
                         border: `1px solid ${db.tableCount > 0 ? 'var(--primary-100)' : 'var(--border-secondary)'}`,
-                        fontSize: '0.8rem', fontWeight: 600,
+                        fontSize: '0.78rem', fontWeight: 600,
                       }}>
-                        <Table2 size={12} />
                         {db.tableCount.toLocaleString()}
+                      </span>
+                    </td>
+
+                    {/* View count */}
+                    <td style={{ textAlign: 'center' }}>
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '4px',
+                        padding: '2px 8px', borderRadius: '999px',
+                        backgroundColor: db.viewCount > 0 ? 'rgba(139,92,246,0.08)' : 'var(--bg-secondary)',
+                        color: db.viewCount > 0 ? '#8b5cf6' : 'var(--text-tertiary)',
+                        border: `1px solid ${db.viewCount > 0 ? 'rgba(139,92,246,0.2)' : 'var(--border-secondary)'}`,
+                        fontSize: '0.78rem', fontWeight: 600,
+                      }}>
+                        {db.viewCount.toLocaleString()}
+                      </span>
+                    </td>
+
+                    {/* MV count */}
+                    <td style={{ textAlign: 'center' }}>
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '4px',
+                        padding: '2px 8px', borderRadius: '999px',
+                        backgroundColor: db.mvCount > 0 ? 'rgba(234,179,8,0.08)' : 'var(--bg-secondary)',
+                        color: db.mvCount > 0 ? '#ca8a04' : 'var(--text-tertiary)',
+                        border: `1px solid ${db.mvCount > 0 ? 'rgba(234,179,8,0.2)' : 'var(--border-secondary)'}`,
+                        fontSize: '0.78rem', fontWeight: 600,
+                      }}>
+                        {db.mvCount.toLocaleString()}
                       </span>
                     </td>
 
