@@ -320,28 +320,45 @@ export default function UsersPage() {
     } catch { /* ignore */ }
   }
 
-  async function loadGrantTables(catalog: string, db: string) {
+  async function loadGrantTables(catalog: string, db: string, objType: string = 'table') {
     if (!session || !db) return;
-    const cacheKey = `tables:${catalog}.${db}`;
+    const cacheKey = `tables:${catalog}.${db}:${objType}`;
     const cached = metaCacheRef.current.get(cacheKey);
     if (cached && Date.now() - cached.ts < META_TTL) {
       setGrantTables(cached.data);
       return;
     }
     try {
+      let sql = '';
+      if (objType === 'view') {
+        sql = `SHOW FULL TABLES FROM \`${catalog}\`.\`${db}\` WHERE Table_type = 'VIEW'`;
+      } else if (objType === 'mv') {
+        sql = `SHOW MATERIALIZED VIEWS FROM \`${db}\``;
+      } else {
+        sql = `SHOW TABLES FROM \`${catalog}\`.\`${db}\``;
+      }
       const res = await fetch(`/api/query`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: session.sessionId, sql: `SHOW TABLES FROM \`${catalog}\`.\`${db}\`` }),
+        body: JSON.stringify({ sessionId: session.sessionId, sql }),
       });
       const data = await res.json();
       if (data.rows) {
-        const names = data.rows.map((r: Record<string, unknown>) =>
-          String(Object.values(r)[0])
-        );
+        let names: string[];
+        if (objType === 'mv') {
+          names = data.rows.map((r: Record<string, unknown>) =>
+            String(r['name'] || r['Name'] || Object.values(r)[0])
+          );
+        } else {
+          names = data.rows.map((r: Record<string, unknown>) =>
+            String(Object.values(r)[0])
+          );
+        }
         setGrantTables(names);
         metaCacheRef.current.set(cacheKey, { data: names, ts: Date.now() });
+      } else {
+        setGrantTables([]);
       }
-    } catch { /* ignore */ }
+    } catch { setGrantTables([]); }
   }
 
   function buildGrantSQL(action: 'GRANT' | 'REVOKE'): string {
@@ -987,7 +1004,7 @@ export default function UsersPage() {
                                     setGrantDb(val);
                                     setGrantSpecificMulti(new Set());
                                     if (!grantAllObjects) {
-                                      loadGrantTables(grantCatalog, val);
+                                      loadGrantTables(grantCatalog, val, grantObjType);
                                     }
                                   }}
                                   placeholder="选择数据库"
@@ -1001,6 +1018,10 @@ export default function UsersPage() {
                                   onChange={val => {
                                     setGrantObjType(val);
                                     setGrantSpecificMulti(new Set());
+                                    setGrantTables([]);
+                                    if (!grantAllObjects && grantDb) {
+                                      loadGrantTables(grantCatalog, grantDb, val);
+                                    }
                                   }}
                                   placeholder="选择类型"
                                   options={[
@@ -1021,7 +1042,7 @@ export default function UsersPage() {
                                         setGrantAllObjects(e.target.checked);
                                         setGrantSpecificMulti(new Set());
                                         if (!e.target.checked && grantDb) {
-                                          loadGrantTables(grantCatalog, grantDb);
+                                          loadGrantTables(grantCatalog, grantDb, grantObjType);
                                         }
                                       }}
                                     />
