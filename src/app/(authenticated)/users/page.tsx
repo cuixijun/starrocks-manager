@@ -957,7 +957,6 @@ export default function UsersPage() {
                               }}
                               placeholder="请选择范围..."
                               options={[
-                                { label: '所有数据库', value: 'all_dbs' },
                                 { label: '指定数据库', value: 'database' },
                                 { label: '库内全部对象', value: 'all_in_db' },
                                 { label: '指定对象', value: 'specific' },
