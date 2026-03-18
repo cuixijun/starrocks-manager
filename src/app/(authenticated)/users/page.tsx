@@ -934,9 +934,11 @@ export default function UsersPage() {
                               value={grantCatalog}
                               onChange={val => {
                                 setGrantCatalog(val);
-                                loadGrantDbs(val);
+                                setGrantDb('');
+                                setGrantDbs([]);
                                 setGrantTables([]);
                                 setGrantSpecific('');
+                                loadGrantDbs(val);
                               }}
                               placeholder="选择 Catalog"
                               options={grantCatalogs.map(c => ({ label: c, value: c }))}
@@ -948,6 +950,10 @@ export default function UsersPage() {
                               value={grantScope}
                               onChange={val => {
                                 setGrantScope(val);
+                                const needsDb = val !== 'all_dbs' && val !== '';
+                                if (needsDb && grantDbs.length === 0) {
+                                  loadGrantDbs(grantCatalog);
+                                }
                                 if ((val === 'specific_table' || val === 'specific_view' || val === 'specific_mv') && grantDb) {
                                   loadGrantTables(grantCatalog, grantDb);
                                 }
