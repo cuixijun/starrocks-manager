@@ -52,6 +52,7 @@ export default function UsersPage() {
   const [expandedGrants, setExpandedGrants] = useState<Set<string>>(new Set());
   const [fromCache, setFromCache] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null); // user identity pending delete
   // Privilege detail modal
   const [showPrivDetail, setShowPrivDetail] = useState<{ identity: string; grants: string[]; catalogGrants?: { grant: string; catalog: string }[] } | null>(null);
 
@@ -160,8 +161,13 @@ export default function UsersPage() {
   }
 
   async function handleDelete(identity: string) {
-    if (!session || !confirm(`确定要删除用户 ${identity} 吗？`)) return;
-    const { user, host } = parseIdentity(identity);
+    if (!session) return;
+    setDeleteConfirm(identity);
+  }
+
+  async function confirmDelete() {
+    if (!session || !deleteConfirm) return;
+    const { user, host } = parseIdentity(deleteConfirm);
     try {
       const res = await fetch('/api/users', {
         method: 'DELETE',
@@ -172,6 +178,7 @@ export default function UsersPage() {
       if (data.error) setError(data.error);
       else { setSuccess('用户已删除'); fetchUsers(); }
     } catch (err) { setError(String(err)); }
+    finally { setDeleteConfirm(null); }
   }
 
   function toggleRoles(identity: string) {
@@ -517,22 +524,21 @@ export default function UsersPage() {
                           </button>
                           <span style={{ width: '1px', height: '16px', backgroundColor: 'var(--border-secondary)', margin: '0 2px' }} />
                           <button
+                            className="btn-ghost btn-icon"
                             disabled={isSystem}
                             onClick={() => !isSystem && handleDelete(u.identity)}
                             title={isSystem ? '系统用户不可删除' : '删除用户'}
                             style={{
-                              display: 'inline-flex', alignItems: 'center', gap: '4px',
-                              padding: '3px 10px', borderRadius: '6px', fontSize: '0.75rem',
-                              border: isSystem ? '1px solid var(--border-secondary)' : '1px solid rgba(239,68,68,0.2)',
-                              backgroundColor: isSystem ? 'transparent' : 'rgba(239,68,68,0.04)',
-                              color: isSystem ? 'var(--text-tertiary)' : 'var(--danger-500, #ef4444)',
-                              cursor: isSystem ? 'not-allowed' : 'pointer',
+                              color: isSystem ? 'var(--text-quaternary, #d1d5db)' : 'var(--danger-400, #f87171)',
+                              padding: '4px', borderRadius: '6px',
                               transition: 'all 0.15s',
-                              fontWeight: 500, whiteSpace: 'nowrap',
-                              opacity: isSystem ? 0.4 : 1,
+                              opacity: isSystem ? 0.3 : 0.7,
+                              cursor: isSystem ? 'not-allowed' : 'pointer',
                             }}
+                            onMouseEnter={e => { if (!isSystem) { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = 'var(--danger-500, #ef4444)'; e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.08)'; } }}
+                            onMouseLeave={e => { if (!isSystem) { e.currentTarget.style.opacity = '0.7'; e.currentTarget.style.color = 'var(--danger-400, #f87171)'; e.currentTarget.style.backgroundColor = 'transparent'; } }}
                           >
-                            <Trash2 size={12} /> 删除
+                            <Trash2 size={14} />
                           </button>
                         </div>
                       </td>
@@ -861,6 +867,41 @@ export default function UsersPage() {
             </div>
           );
         })()}
+
+        {/* Delete Confirmation Modal */}
+        {deleteConfirm && (
+          <div className="modal-overlay" onClick={() => setDeleteConfirm(null)}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '420px' }}>
+              <div className="modal-header">
+                <div className="modal-title" style={{ color: 'var(--danger-500, #ef4444)' }}>
+                  <Trash2 size={18} style={{ marginRight: '6px' }} /> 确认删除用户
+                </div>
+                <button className="btn-ghost btn-icon" onClick={() => setDeleteConfirm(null)}><X size={18} /></button>
+              </div>
+              <div className="modal-body" style={{ padding: '20px' }}>
+                <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text-primary)', lineHeight: 1.6 }}>
+                  确定要删除用户 <code style={{ padding: '2px 6px', borderRadius: '4px', backgroundColor: 'var(--bg-tertiary)', fontWeight: 600 }}>{deleteConfirm}</code> 吗？
+                </p>
+                <p style={{ margin: '8px 0 0', fontSize: '0.78rem', color: 'var(--text-tertiary)' }}>
+                  此操作不可撤销，该用户的所有权限也将被移除。
+                </p>
+              </div>
+              <div className="modal-footer">
+                <button className="btn btn-secondary" onClick={() => setDeleteConfirm(null)}>取消</button>
+                <button
+                  className="btn"
+                  style={{
+                    backgroundColor: 'var(--danger-500, #ef4444)', color: '#fff', border: 'none',
+                    display: 'inline-flex', alignItems: 'center', gap: '6px',
+                  }}
+                  onClick={confirmDelete}
+                >
+                  <Trash2 size={14} /> 确认删除
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Privilege Detail Modal */}
         {showPrivDetail && (
