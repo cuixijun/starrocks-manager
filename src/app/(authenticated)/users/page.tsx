@@ -259,7 +259,7 @@ export default function UsersPage() {
     setGrantPrivs(new Set());
     setGrantCatalog('default_catalog');
     setGrantDb('');
-    setGrantScope('');
+    setGrantScope('database');
     setGrantSpecific('');
     setGrantSubmitting(false);
     setGrantExisting([]);
@@ -841,7 +841,7 @@ export default function UsersPage() {
                             if (cat === 'system') setGrantScope('system');
                             else if (cat === 'catalog') setGrantScope('catalog');
                             else if (cat === 'function') setGrantScope('all_global');
-                            else setGrantScope('all_tables');
+                            else setGrantScope('database');
                           }}
                         >
                           <span className="priv-icon" style={{ backgroundColor: meta.bg, color: meta.color }}>
