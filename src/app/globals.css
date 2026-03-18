@@ -1581,11 +1581,6 @@ select.input option:checked {
 .ss-rotated { transform: rotate(180deg); }
 
 .ss-dropdown {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  z-index: 100;
   background: var(--bg-primary);
   border: 1.5px solid var(--border-secondary);
   border-radius: var(--radius-md);
