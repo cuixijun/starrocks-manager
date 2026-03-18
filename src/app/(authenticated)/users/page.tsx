@@ -389,7 +389,7 @@ export default function UsersPage() {
     if (grantScope === 'database') {
       const dbs = Array.from(grantDbMulti);
       if (dbs.length === 0) return '';
-      return dbs.map(db => `${action} ${privStr} ON DATABASE ${db} ${toFrom} ${showGrant}`).join(';\n');
+      return dbs.map(db => `${action} ${privStr} ON DATABASE ${db} ${toFrom} ${showGrant}`).join('; ');
     }
     if (grantScope === 'object') {
       if (!grantDb) return '';
@@ -400,7 +400,7 @@ export default function UsersPage() {
         const typeMap: Record<string, string> = { specific_table: 'TABLE', specific_view: 'VIEW', specific_mv: 'MATERIALIZED VIEW' };
         const items = Array.from(grantSpecificMulti);
         if (items.length === 0) return '';
-        return items.map(item => `${action} ${privStr} ON ${typeMap[grantObjType] || 'TABLE'} ${grantDb}.${item} ${toFrom} ${showGrant}`).join(';\n');
+        return items.map(item => `${action} ${privStr} ON ${typeMap[grantObjType] || 'TABLE'} ${grantDb}.${item} ${toFrom} ${showGrant}`).join('; ');
       }
     }
     return '';
@@ -408,23 +408,22 @@ export default function UsersPage() {
 
   async function handleGrantSubmit(action: 'GRANT' | 'REVOKE') {
     if (!session || !showGrant) return;
-    const sqlBlock = buildGrantSQL(action);
-    if (!sqlBlock) return;
+    const sql = buildGrantSQL(action);
+    if (!sql) return;
     setGrantSubmitting(true);
     setError('');
     try {
-      const statements = sqlBlock.split(';\n').map(s => s.trim()).filter(Boolean);
-      for (const sql of statements) {
-        const res = await fetch('/api/query', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessionId: session.sessionId, sql }),
-        });
-        const data = await res.json();
-        if (data.error) { setError(data.error); return; }
+      const res = await fetch('/api/query', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: session.sessionId, sql }),
+      });
+      const data = await res.json();
+      if (data.error) setError(data.error);
+      else {
+        setSuccess(`${action === 'GRANT' ? '授权' : '撤销'}成功`);
+        setShowGrant(null);
+        fetchUsers(true);
       }
-      setSuccess(`${action === 'GRANT' ? '授权' : '撤销'}成功 (${statements.length} 条)`);
-      setShowGrant(null);
-      fetchUsers(true);
     } catch (err) { setError(String(err)); }
     finally { setGrantSubmitting(false); }
   }
