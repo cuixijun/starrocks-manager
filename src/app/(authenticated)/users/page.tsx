@@ -504,9 +504,9 @@ export default function UsersPage() {
                             style={{
                               display: 'inline-flex', alignItems: 'center', gap: '4px',
                               padding: '3px 10px', borderRadius: '6px', fontSize: '0.75rem',
-                              border: '1px solid var(--border-secondary)',
-                              backgroundColor: 'transparent',
-                              color: isSystem ? 'var(--text-tertiary)' : 'var(--text-secondary)',
+                              border: isSystem ? '1px solid var(--border-secondary)' : '1px solid rgba(20,184,166,0.3)',
+                              backgroundColor: isSystem ? 'transparent' : 'rgba(20,184,166,0.06)',
+                              color: isSystem ? 'var(--text-tertiary)' : '#0d9488',
                               cursor: isSystem ? 'not-allowed' : 'pointer',
                               transition: 'all 0.15s',
                               fontWeight: 500, whiteSpace: 'nowrap',
@@ -517,21 +517,22 @@ export default function UsersPage() {
                           </button>
                           <span style={{ width: '1px', height: '16px', backgroundColor: 'var(--border-secondary)', margin: '0 2px' }} />
                           <button
-                            className="btn btn-ghost btn-icon"
                             disabled={isSystem}
-                            style={{
-                              color: isSystem ? 'var(--text-quaternary, #d1d5db)' : 'var(--text-tertiary)',
-                              padding: '4px', borderRadius: '6px',
-                              transition: 'all 0.15s',
-                              opacity: isSystem ? 0.4 : 1,
-                              cursor: isSystem ? 'not-allowed' : 'pointer',
-                            }}
                             onClick={() => !isSystem && handleDelete(u.identity)}
                             title={isSystem ? '系统用户不可删除' : '删除用户'}
-                            onMouseEnter={e => { if (!isSystem) { e.currentTarget.style.color = 'var(--danger-500)'; e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.08)'; } }}
-                            onMouseLeave={e => { if (!isSystem) { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.backgroundColor = 'transparent'; } }}
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: '4px',
+                              padding: '3px 10px', borderRadius: '6px', fontSize: '0.75rem',
+                              border: isSystem ? '1px solid var(--border-secondary)' : '1px solid rgba(239,68,68,0.2)',
+                              backgroundColor: isSystem ? 'transparent' : 'rgba(239,68,68,0.04)',
+                              color: isSystem ? 'var(--text-tertiary)' : 'var(--danger-500, #ef4444)',
+                              cursor: isSystem ? 'not-allowed' : 'pointer',
+                              transition: 'all 0.15s',
+                              fontWeight: 500, whiteSpace: 'nowrap',
+                              opacity: isSystem ? 0.4 : 1,
+                            }}
                           >
-                            <Trash2 size={13} />
+                            <Trash2 size={12} /> 删除
                           </button>
                         </div>
                       </td>
