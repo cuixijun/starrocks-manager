@@ -84,7 +84,7 @@ export default function DashboardPage() {
   clusterStatusRef.current = clusterStatus;
 
   const fetchCluster = useCallback(async () => {
-    if (!clusterSessionId || connectionFailedRef.current || clusterStatusRef.current === 'unknown') return;
+    if (!clusterSessionId || connectionFailedRef.current) return;
     try {
       const res = await fetch(`/api/cluster?sessionId=${encodeURIComponent(clusterSessionId)}`);
       const cluster = await res.json();
@@ -111,7 +111,7 @@ export default function DashboardPage() {
   }, [clusterSessionId, markFailed]);
 
   const fetchQueries = useCallback(async () => {
-    if (!session || connectionFailedRef.current || clusterStatusRef.current === 'unknown') return;
+    if (!session || connectionFailedRef.current) return;
     try {
       const res = await fetch(`/api/queries?sessionId=${encodeURIComponent(session.sessionId)}`);
       const data = await res.json();
@@ -255,8 +255,8 @@ export default function DashboardPage() {
     });
   }, [queries, commandFilter, userFilter]);
 
-  // Gate: show loading while cluster status is unknown or data is loading
-  if (loading || clusterStatus === 'unknown') {
+  // Gate: show loading while data is being fetched
+  if (loading) {
     return (
       <>
         <div className="page-header">
@@ -272,7 +272,7 @@ export default function DashboardPage() {
             <div className="spinner" style={{ width: '32px', height: '32px' }} />
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '6px' }}>
-                {clusterStatus === 'unknown' ? '正在检测集群连接状态...' : '加载中...'}
+                正在连接集群...
               </div>
               {activeCluster && (
                 <div style={{ fontSize: '0.82rem', color: 'var(--text-tertiary)' }}>
