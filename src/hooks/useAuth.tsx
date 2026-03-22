@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, createContext, useContext } from 'react';
+import { useState, useEffect, useCallback, useRef, createContext, useContext } from 'react';
 import type { ReactNode } from 'react';
 
 export type SysRole = 'admin' | 'editor' | 'viewer';
@@ -157,11 +157,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // ========== Real-time health via SSE ==========
   // Connect to /api/cluster-health-stream for live updates.
-  // Updates clusterStatus when active cluster state changes.
-  // Dispatches 'cluster-health-update' CustomEvent for cluster-manager page.
+  // Uses refs for clusterStatus/activeCluster to avoid reconnecting on status changes.
+  const clusterStatusRef = useRef(clusterStatus);
+  clusterStatusRef.current = clusterStatus;
+  const activeClusterRef = useRef(activeCluster);
+  activeClusterRef.current = activeCluster;
+
   useEffect(() => {
     if (!user) return; // Not logged in — no stream
-    // Only connect when tab is visible
     if (typeof document !== 'undefined' && document.hidden) return;
 
     let eventSource: EventSource | null = null;
@@ -178,14 +181,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Dispatch event for cluster-manager page
           window.dispatchEvent(new CustomEvent('cluster-health-update', { detail: clustersHealth }));
 
-          // Update active cluster status
-          if (activeCluster && clustersHealth[activeCluster.id]) {
-            const newStatus = clustersHealth[activeCluster.id].status as ClusterStatus;
-            // Only react to actual changes
-            if (newStatus === 'online' && clusterStatus !== 'online') {
+          // Update active cluster status (read from ref to avoid dep cycle)
+          const ac = activeClusterRef.current;
+          const cs = clusterStatusRef.current;
+          if (ac && clustersHealth[ac.id]) {
+            const newStatus = clustersHealth[ac.id].status as ClusterStatus;
+            if (newStatus === 'online' && cs !== 'online') {
               setClusterStatus('online');
               window.dispatchEvent(new CustomEvent('cluster-switched'));
-            } else if (newStatus === 'offline' && clusterStatus !== 'offline') {
+            } else if (newStatus === 'offline' && cs !== 'offline') {
               setClusterStatus('offline');
             }
           }
@@ -195,14 +199,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       eventSource.onerror = () => {
         eventSource?.close();
         eventSource = null;
-        // Reconnect after 10s
         reconnectTimer = setTimeout(connect, 10_000);
       };
     };
 
     connect();
 
-    // Pause/resume on tab visibility
     const handleVisibility = () => {
       if (document.hidden) {
         eventSource?.close();
@@ -219,7 +221,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (reconnectTimer) clearTimeout(reconnectTimer);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [user, activeCluster, clusterStatus]);
+  }, [user]); // Only reconnect when user changes (login/logout)
 
   return (
     <AuthContext.Provider value={{ user, clusters, activeCluster, clusterStatus, loading, login, logout, switchCluster, refreshAuth, setClusterStatus }}>

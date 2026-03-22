@@ -79,8 +79,12 @@ export default function DashboardPage() {
     setClusterStatus('online');
   }, [setClusterStatus]);
 
+  // Use ref for clusterStatus to avoid dependency cascades in fetch callbacks
+  const clusterStatusRef = useRef(clusterStatus);
+  clusterStatusRef.current = clusterStatus;
+
   const fetchCluster = useCallback(async () => {
-    if (!clusterSessionId || connectionFailedRef.current || clusterStatus === 'unknown') return;
+    if (!clusterSessionId || connectionFailedRef.current || clusterStatusRef.current === 'unknown') return;
     try {
       const res = await fetch(`/api/cluster?sessionId=${encodeURIComponent(clusterSessionId)}`);
       const cluster = await res.json();
@@ -104,10 +108,10 @@ export default function DashboardPage() {
       setError(String(err));
       markFailed();
     }
-  }, [clusterSessionId, markFailed, clusterStatus]);
+  }, [clusterSessionId, markFailed]);
 
   const fetchQueries = useCallback(async () => {
-    if (!session || connectionFailedRef.current || clusterStatus === 'unknown') return;
+    if (!session || connectionFailedRef.current || clusterStatusRef.current === 'unknown') return;
     try {
       const res = await fetch(`/api/queries?sessionId=${encodeURIComponent(session.sessionId)}`);
       const data = await res.json();
