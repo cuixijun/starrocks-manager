@@ -113,6 +113,28 @@ export default function ClusterManagerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Listen for real-time SSE health updates from useAuth
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const clustersHealth = (e as CustomEvent).detail as Record<string, { status: string; version?: string; checkedAt: string }>;
+      if (!clustersHealth) return;
+      setHealthMap(prev => {
+        const next = { ...prev };
+        for (const [idStr, val] of Object.entries(clustersHealth)) {
+          const id = parseInt(idStr, 10);
+          next[id] = {
+            status: val.status as HealthResult['status'],
+            version: val.version,
+            checkedAt: val.checkedAt,
+          };
+        }
+        return next;
+      });
+    };
+    window.addEventListener('cluster-health-update', handler);
+    return () => window.removeEventListener('cluster-health-update', handler);
+  }, []);
+
   function openCreate() {
     setEditCluster(null);
     setForm({ name: '', host: '', port: '9030', username: 'root', password: '', default_db: '', description: '' });

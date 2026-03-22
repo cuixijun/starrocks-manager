@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef, createContext, useContext } from 'react';
+import { useState, useEffect, useCallback, createContext, useContext } from 'react';
 import type { ReactNode } from 'react';
 
 export type SysRole = 'admin' | 'editor' | 'viewer';
@@ -42,7 +42,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [activeCluster, setActiveCluster] = useState<ClusterBrief | null>(null);
   const [clusterStatus, setClusterStatus] = useState<ClusterStatus>('unknown');
   const [loading, setLoading] = useState(true);
-  const probeTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const refreshAuth = useCallback(async () => {
     try {
@@ -156,45 +155,71 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [clusters]);
 
-  // ========== Background health probe ==========
-  // When cluster is offline, periodically ping /api/health to detect recovery.
-  // Only runs in the currently visible tab to avoid duplicate requests.
+  // ========== Real-time health via SSE ==========
+  // Connect to /api/cluster-health-stream for live updates.
+  // Updates clusterStatus when active cluster state changes.
+  // Dispatches 'cluster-health-update' CustomEvent for cluster-manager page.
   useEffect(() => {
-    // Clear any existing timer
-    if (probeTimerRef.current) {
-      clearInterval(probeTimerRef.current);
-      probeTimerRef.current = null;
-    }
+    if (!user) return; // Not logged in — no stream
+    // Only connect when tab is visible
+    if (typeof document !== 'undefined' && document.hidden) return;
 
-    // Only probe when we know the cluster is offline and we have an active cluster
-    if (clusterStatus !== 'offline' || !activeCluster) return;
+    let eventSource: EventSource | null = null;
+    let reconnectTimer: NodeJS.Timeout | null = null;
 
-    const sessionId = `${activeCluster.host}:${activeCluster.port}`;
+    const connect = () => {
+      eventSource = new EventSource('/api/cluster-health-stream');
 
-    const probe = async () => {
-      // Skip if tab is hidden (other tabs may be probing the same cluster)
-      if (document.hidden) return;
-      try {
-        const res = await fetch(`/api/health?sessionId=${encodeURIComponent(sessionId)}`);
-        const data = await res.json();
-        if (data.ok) {
-          setClusterStatus('online');
-          // Trigger pages to re-fetch data
-          window.dispatchEvent(new CustomEvent('cluster-switched'));
-        }
-      } catch { /* still offline, keep probing */ }
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          const clustersHealth = data.clusters as Record<string, { status: string; version?: string; checkedAt: string }>;
+
+          // Dispatch event for cluster-manager page
+          window.dispatchEvent(new CustomEvent('cluster-health-update', { detail: clustersHealth }));
+
+          // Update active cluster status
+          if (activeCluster && clustersHealth[activeCluster.id]) {
+            const newStatus = clustersHealth[activeCluster.id].status as ClusterStatus;
+            // Only react to actual changes
+            if (newStatus === 'online' && clusterStatus !== 'online') {
+              setClusterStatus('online');
+              window.dispatchEvent(new CustomEvent('cluster-switched'));
+            } else if (newStatus === 'offline' && clusterStatus !== 'offline') {
+              setClusterStatus('offline');
+            }
+          }
+        } catch { /* malformed event, skip */ }
+      };
+
+      eventSource.onerror = () => {
+        eventSource?.close();
+        eventSource = null;
+        // Reconnect after 10s
+        reconnectTimer = setTimeout(connect, 10_000);
+      };
     };
 
-    // Probe every 60 seconds (reduced from 30s to avoid excessive 503s)
-    probeTimerRef.current = setInterval(probe, 60_000);
+    connect();
 
-    return () => {
-      if (probeTimerRef.current) {
-        clearInterval(probeTimerRef.current);
-        probeTimerRef.current = null;
+    // Pause/resume on tab visibility
+    const handleVisibility = () => {
+      if (document.hidden) {
+        eventSource?.close();
+        eventSource = null;
+        if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      } else {
+        if (!eventSource) connect();
       }
     };
-  }, [clusterStatus, activeCluster]);
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      eventSource?.close();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [user, activeCluster, clusterStatus]);
 
   return (
     <AuthContext.Provider value={{ user, clusters, activeCluster, clusterStatus, loading, login, logout, switchCluster, refreshAuth, setClusterStatus }}>
