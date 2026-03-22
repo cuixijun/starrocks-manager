@@ -252,9 +252,34 @@ export default function SysUsersPage() {
             <label className="form-label">密码 {editUser && <span style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>(留空则不修改)</span>}</label>
             <input className="input" type="password" placeholder={editUser ? '留空则不修改' : '设置密码'}
               value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} />
-            <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', marginTop: '4px', lineHeight: 1.5 }}>
-              密码要求：至少 8 位，包含大小写字母、数字、特殊字符
-            </div>
+            {/* Real-time password strength checklist */}
+            {(form.password.length > 0 || !editUser) && form.password.length > 0 && (() => {
+              const rules = [
+                { ok: form.password.length >= 8, label: '至少 8 位字符' },
+                { ok: /[A-Z]/.test(form.password), label: '包含大写字母' },
+                { ok: /[a-z]/.test(form.password), label: '包含小写字母' },
+                { ok: /[0-9]/.test(form.password), label: '包含数字' },
+                { ok: /[^A-Za-z0-9]/.test(form.password), label: '包含特殊字符（如 !@#$%）' },
+              ];
+              return (
+                <div style={{ marginTop: '6px', display: 'flex', flexWrap: 'wrap', gap: '4px 12px' }}>
+                  {rules.map((r, i) => (
+                    <span key={i} style={{
+                      fontSize: '0.7rem', display: 'inline-flex', alignItems: 'center', gap: '3px',
+                      color: r.ok ? 'var(--success-600, #16a34a)' : 'var(--text-tertiary)',
+                      transition: 'color 0.15s',
+                    }}>
+                      {r.ok ? '✓' : '○'} {r.label}
+                    </span>
+                  ))}
+                </div>
+              );
+            })()}
+            {form.password.length === 0 && !editUser && (
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+                密码要求：至少 8 位，包含大小写字母、数字、特殊字符
+              </div>
+            )}
           </div>
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label className="form-label">显示名称</label>

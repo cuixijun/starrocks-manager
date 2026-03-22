@@ -1,15 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getLocalDb } from '@/lib/local-db';
-import { verifyPassword, createSession, validateSession, destroySession, getAuthFromRequest, getUserClusters } from '@/lib/auth';
+import { verifyPassword, hashPassword, createSession, validateSession, destroySession, getAuthFromRequest, getUserClusters } from '@/lib/auth';
 import type { SysUser } from '@/lib/auth';
 
 interface SysUserRow extends SysUser {
   password_hash: string;
 }
 
+// Password complexity check
+function validatePasswordComplexity(pwd: string): string | null {
+  if (pwd.length < 8) return '密码长度至少 8 位';
+  if (!/[A-Z]/.test(pwd)) return '密码必须包含大写字母';
+  if (!/[a-z]/.test(pwd)) return '密码必须包含小写字母';
+  if (!/[0-9]/.test(pwd)) return '密码必须包含数字';
+  if (!/[^A-Za-z0-9]/.test(pwd)) return '密码必须包含特殊字符（如 !@#$%）';
+  return null;
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const { action, username, password } = await request.json();
+    const body = await request.json();
+    const { action, username, password } = body;
 
     // --- Login ---
     if (!action || action === 'login') {
@@ -77,6 +88,46 @@ export async function POST(request: NextRequest) {
       const response = NextResponse.json({ success: true });
       response.cookies.delete('sys_token');
       return response;
+    }
+
+    // --- Change Password (self-service) ---
+    if (action === 'change-password') {
+      const token = getAuthFromRequest(request);
+      if (!token) {
+        return NextResponse.json({ error: '未登录' }, { status: 401 });
+      }
+      const result = validateSession(token);
+      if (!result) {
+        return NextResponse.json({ error: '会话过期，请重新登录' }, { status: 401 });
+      }
+
+      const { oldPassword, newPassword } = body;
+      if (!oldPassword || !newPassword) {
+        return NextResponse.json({ error: '请填写旧密码和新密码' }, { status: 400 });
+      }
+
+      // Validate new password complexity
+      const pwdErr = validatePasswordComplexity(newPassword);
+      if (pwdErr) {
+        return NextResponse.json({ error: pwdErr }, { status: 400 });
+      }
+
+      const db = getLocalDb();
+      const user = db.prepare('SELECT * FROM sys_users WHERE id = ?').get(result.user.id) as SysUserRow | undefined;
+      if (!user) {
+        return NextResponse.json({ error: '用户不存在' }, { status: 404 });
+      }
+
+      // Verify old password
+      if (!verifyPassword(oldPassword, user.password_hash)) {
+        return NextResponse.json({ error: '旧密码错误' }, { status: 400 });
+      }
+
+      // Update password
+      const newHash = hashPassword(newPassword);
+      db.prepare('UPDATE sys_users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newHash, user.id);
+
+      return NextResponse.json({ success: true });
     }
 
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
