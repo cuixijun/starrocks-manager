@@ -255,7 +255,8 @@ export default function DashboardPage() {
     });
   }, [queries, commandFilter, userFilter]);
 
-  if (loading) {
+  // Gate: show loading while cluster status is unknown or data is loading
+  if (loading || clusterStatus === 'unknown') {
     return (
       <>
         <div className="page-header">
@@ -263,7 +264,36 @@ export default function DashboardPage() {
           <h1 className="page-title">仪表盘</h1>
         </div>
         <div className="page-body">
-          <div className="loading-overlay"><div className="spinner" /> 加载中...</div>
+          {/* Skeleton loading state */}
+          <div style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            padding: '60px 20px', gap: '20px',
+          }}>
+            <div className="spinner" style={{ width: '32px', height: '32px' }} />
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '6px' }}>
+                {clusterStatus === 'unknown' ? '正在检测集群连接状态...' : '加载中...'}
+              </div>
+              {activeCluster && (
+                <div style={{ fontSize: '0.82rem', color: 'var(--text-tertiary)' }}>
+                  {activeCluster.name} · {activeCluster.host}:{activeCluster.port}
+                </div>
+              )}
+            </div>
+          </div>
+          {/* Skeleton stat cards */}
+          <div className="grid-4 mb-6">
+            {[1, 2, 3, 4].map(i => (
+              <div key={i} className="stat-card" style={{ opacity: 0.5 }}>
+                <div className="stat-card-icon" style={{ background: 'var(--bg-tertiary)' }}>
+                  <div style={{ width: '20px', height: '20px', borderRadius: '4px', background: 'var(--border-primary)' }} />
+                </div>
+                <div className="stat-card-label" style={{ width: '60px', height: '12px', borderRadius: '6px', background: 'var(--border-primary)' }} />
+                <div className="stat-card-value" style={{ width: '30px', height: '24px', borderRadius: '6px', background: 'var(--border-primary)' }} />
+                <div className="stat-card-detail" style={{ width: '80px', height: '10px', borderRadius: '6px', background: 'var(--border-primary)' }} />
+              </div>
+            ))}
+          </div>
         </div>
       </>
     );
