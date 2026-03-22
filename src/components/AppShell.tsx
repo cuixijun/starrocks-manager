@@ -43,7 +43,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         ? 'var(--danger-500)'
         : 'var(--warning-500)'; // unknown
 
-  const statusLabel = clusterStatus === 'online' ? '在线' : clusterStatus === 'offline' ? '离线' : '检测中';
+  const statusLabel = !activeCluster
+    ? '未选择'
+    : clusterStatus === 'online' ? '在线' : clusterStatus === 'offline' ? '离线' : '检测中';
 
   const handleRetry = useCallback(async () => {
     if (!activeCluster) return;
