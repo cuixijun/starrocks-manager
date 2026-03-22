@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { LogIn, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import ThemeSwitcher from '@/components/ThemeSwitcher';
 import { useAuth } from '@/hooks/useAuth';
@@ -15,11 +15,14 @@ export default function LoginPage() {
   const { login, user } = useAuth();
   const router = useRouter();
 
-  // Already logged in? Redirect
-  if (user) {
-    router.replace('/dashboard');
-    return null;
-  }
+  // Already logged in? Redirect via effect (not during render)
+  useEffect(() => {
+    if (user) {
+      router.replace('/dashboard');
+    }
+  }, [user, router]);
+
+  if (user) return null;
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
