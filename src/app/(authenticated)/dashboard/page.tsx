@@ -38,18 +38,38 @@ interface ProcessInfo {
   [key: string]: unknown;
 }
 
+// Module-level cache: persists across component re-mounts (page navigations)
+// Keyed by clusterSessionId to handle cluster switches
+let dashboardCache: {
+  sessionId: string;
+  frontends: NodeInfo[];
+  backends: NodeInfo[];
+  computeNodes: NodeInfo[];
+  brokers: NodeInfo[];
+  queries: ProcessInfo[];
+  timestamp: number;
+} | null = null;
+
+const CACHE_MAX_AGE = 60_000; // 60s — show cached data if within this window
+
 export default function DashboardPage() {
   const { session, clusterOffline, retryConnection, retrying } = useSession();
   const { activeCluster, clusterStatus, setClusterStatus } = useAuth();
   // Dashboard needs its own sessionId from activeCluster (bypassing the offline gate)
   // because it's the page that first detects and reports cluster failures
   const clusterSessionId = activeCluster ? `${activeCluster.host}:${activeCluster.port}` : null;
-  const [frontends, setFrontends] = useState<NodeInfo[]>([]);
-  const [backends, setBackends] = useState<NodeInfo[]>([]);
-  const [computeNodes, setComputeNodes] = useState<NodeInfo[]>([]);
-  const [brokers, setBrokers] = useState<NodeInfo[]>([]);
-  const [queries, setQueries] = useState<ProcessInfo[]>([]);
-  const [loading, setLoading] = useState(true);
+
+  // Restore from cache if available for this cluster
+  const cached = dashboardCache && clusterSessionId && dashboardCache.sessionId === clusterSessionId
+    ? dashboardCache : null;
+
+  const [frontends, setFrontends] = useState<NodeInfo[]>(cached?.frontends || []);
+  const [backends, setBackends] = useState<NodeInfo[]>(cached?.backends || []);
+  const [computeNodes, setComputeNodes] = useState<NodeInfo[]>(cached?.computeNodes || []);
+  const [brokers, setBrokers] = useState<NodeInfo[]>(cached?.brokers || []);
+  const [queries, setQueries] = useState<ProcessInfo[]>(cached?.queries || []);
+  // Only show loading if we DON'T have cached data
+  const [loading, setLoading] = useState(!cached);
   const [error, setError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [killConfirm, setKillConfirm] = useState<string | number | null>(null);
@@ -95,10 +115,21 @@ export default function DashboardPage() {
           markFailed();
         }
       } else {
-        setFrontends(cluster.frontends || []);
-        setBackends(cluster.backends || []);
-        setComputeNodes(cluster.computeNodes || []);
-        setBrokers(cluster.brokers || []);
+        const fe = cluster.frontends || [];
+        const be = cluster.backends || [];
+        const cn = cluster.computeNodes || [];
+        const br = cluster.brokers || [];
+        setFrontends(fe);
+        setBackends(be);
+        setComputeNodes(cn);
+        setBrokers(br);
+        // Update cache
+        dashboardCache = {
+          sessionId: clusterSessionId,
+          frontends: fe, backends: be, computeNodes: cn, brokers: br,
+          queries: dashboardCache?.queries || [],
+          timestamp: Date.now(),
+        };
         // Connection successful — mark as online if was previously unknown/failed
         if (!connectionFailedRef.current) {
           setClusterStatus('online');
@@ -116,7 +147,13 @@ export default function DashboardPage() {
       const res = await fetch(`/api/queries?sessionId=${encodeURIComponent(session.sessionId)}`);
       const data = await res.json();
       if (res.ok) {
-        setQueries(data.queries || []);
+        const q = data.queries || [];
+        setQueries(q);
+        // Update cache queries
+        if (dashboardCache && dashboardCache.sessionId === session.sessionId) {
+          dashboardCache.queries = q;
+          dashboardCache.timestamp = Date.now();
+        }
       }
     } catch { /* ignore */ }
   }, [session]);
@@ -134,6 +171,8 @@ export default function DashboardPage() {
   // Clear stale data when cluster switches
   useEffect(() => {
     const handleSwitch = () => {
+      // Invalidate cache for old cluster
+      dashboardCache = null;
       setFrontends([]);
       setBackends([]);
       setComputeNodes([]);
@@ -148,7 +187,7 @@ export default function DashboardPage() {
     return () => window.removeEventListener('cluster-switched', handleSwitch);
   }, []);
 
-  // Initial load — only runs once per session
+  // Initial load — fetch in background (if cached, loading is already false)
   useEffect(() => {
     fetchAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
