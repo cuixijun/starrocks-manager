@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, switchCluster, getCluster, getUserClusters } from '@/lib/auth';
-import { createPool } from '@/lib/db';
+import { createPool, clearConnectionFailure } from '@/lib/db';
 
 export async function POST(
   request: NextRequest,
@@ -28,26 +28,23 @@ export async function POST(
       return NextResponse.json({ error: '集群不存在或已禁用' }, { status: 404 });
     }
 
-    // Switch the session's active cluster
+    // Switch the session's active cluster — instant, no blocking
     switchCluster(session.token, clusterId);
 
-    // Proactively create connection pool
-    try {
-      await createPool({
-        host: cluster.host,
-        port: cluster.port,
-        user: cluster.username,
-        password: cluster.password,
-        database: cluster.default_db || undefined,
-      });
-    } catch (connErr) {
-      return NextResponse.json({
-        success: true,
-        activeCluster: { id: cluster.id, name: cluster.name, host: cluster.host, port: cluster.port },
-        warning: `已切换但连接失败: ${connErr instanceof Error ? connErr.message : String(connErr)}`,
-      });
-    }
+    // Clear any failure cooldown for this cluster so health checks can proceed
+    clearConnectionFailure(`${cluster.host}:${cluster.port}`);
 
+    // Fire-and-forget: create pool in background (do NOT await)
+    // This avoids the 5s timeout lag when the cluster is unreachable
+    createPool({
+      host: cluster.host,
+      port: cluster.port,
+      user: cluster.username,
+      password: cluster.password,
+      database: cluster.default_db || undefined,
+    }).catch(() => { /* pool creation failed — health probe will handle status */ });
+
+    // Return immediately — frontend will determine online/offline via health check
     return NextResponse.json({
       success: true,
       activeCluster: {
@@ -65,3 +62,4 @@ export async function POST(
     );
   }
 }
+

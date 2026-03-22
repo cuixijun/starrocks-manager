@@ -121,14 +121,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const switchCluster = useCallback(async (clusterId: number) => {
+    // 1. Immediately clear status → pages will show loading/transition
+    setClusterStatus('unknown');
+
     try {
       const res = await fetch(`/api/clusters/${clusterId}/activate`, { method: 'POST' });
       const data = await res.json();
       if (data.success) {
         const cluster = clusters.find(c => c.id === clusterId) || null;
         setActiveCluster(cluster);
-        setClusterStatus(data.error ? 'offline' : 'online');
-        // Trigger page data refresh
+
+        // 2. Dispatch cluster-switched so pages clear their stale data
+        window.dispatchEvent(new CustomEvent('cluster-switched'));
+
+        // 3. Quick health check to determine online/offline
+        if (cluster) {
+          try {
+            const sid = `${cluster.host}:${cluster.port}`;
+            const hRes = await fetch(`/api/health?sessionId=${encodeURIComponent(sid)}`);
+            const hData = await hRes.json();
+            setClusterStatus(hData.ok ? 'online' : 'offline');
+          } catch {
+            setClusterStatus('offline');
+          }
+        }
+
+        // Re-dispatch after status is known so pages can fetch fresh data
         window.dispatchEvent(new CustomEvent('cluster-switched'));
       } else {
         setClusterStatus('offline');

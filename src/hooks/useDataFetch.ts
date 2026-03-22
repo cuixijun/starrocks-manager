@@ -36,6 +36,7 @@ export function useDataFetch<T>(opts: UseDataFetchOptions<T>, initialData: T): U
   const [fromCache, setFromCache] = useState(false);
   const optsRef = useRef(opts);
   optsRef.current = opts;
+  const initialDataRef = useRef(initialData);
 
   const refresh = useCallback(async (force = false) => {
     if (!session) return;
@@ -58,9 +59,23 @@ export function useDataFetch<T>(opts: UseDataFetchOptions<T>, initialData: T): U
     if (session && (optsRef.current.autoFetch !== false)) refresh();
   }, [session, refresh]);
 
+  // Listen for cluster-switched event: immediately clear stale data
+  useEffect(() => {
+    const handleSwitch = () => {
+      setData(initialDataRef.current);
+      setError('');
+      setCachedAt('');
+      setFromCache(false);
+      setLoading(true);
+    };
+    window.addEventListener('cluster-switched', handleSwitch);
+    return () => window.removeEventListener('cluster-switched', handleSwitch);
+  }, []);
+
   useEffect(() => {
     if (success) { const t = setTimeout(() => setSuccess(''), 3000); return () => clearTimeout(t); }
   }, [success]);
 
   return { data, loading, refreshing, error, success, cachedAt, fromCache, setError, setSuccess, refresh };
 }
+

@@ -127,6 +127,23 @@ export default function DashboardPage() {
     }
   }, [clusterSessionId, fetchCluster, fetchQueries]);
 
+  // Clear stale data when cluster switches
+  useEffect(() => {
+    const handleSwitch = () => {
+      setFrontends([]);
+      setBackends([]);
+      setComputeNodes([]);
+      setBrokers([]);
+      setQueries([]);
+      setError('');
+      setLoading(true);
+      connectionFailedRef.current = false;
+      setConnectionFailed(false);
+    };
+    window.addEventListener('cluster-switched', handleSwitch);
+    return () => window.removeEventListener('cluster-switched', handleSwitch);
+  }, []);
+
   // Initial load — only runs once per session
   useEffect(() => {
     fetchAll();
