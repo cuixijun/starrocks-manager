@@ -420,6 +420,7 @@ export default function MVDetailPage() {
                           <th style={{ minWidth: '130px' }}>结束时间</th>
                           <th style={{ minWidth: '50px' }}>耗时</th>
                           <th style={{ minWidth: '70px' }}>进度</th>
+                          <th style={{ minWidth: '200px' }}>错误信息</th>
                           <th>刷新信息</th>
                         </tr>
                       </thead>
@@ -430,7 +431,8 @@ export default function MVDetailPage() {
                           const createTime = str(run.CREATE_TIME);
                           const finishTime = str(run.FINISH_TIME);
                           const progress = str(run.PROGRESS);
-                          const extraMsg = str(run.EXTRA_MESSAGE || run.ERROR_MESSAGE);
+                          const errorMsg = str(run.ERROR_MESSAGE);
+                          const extraMsg = str(run.EXTRA_MESSAGE);
 
                           const fmtDate = (d: string) => {
                             if (!d) return '';
@@ -461,8 +463,22 @@ export default function MVDetailPage() {
                               <td style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{fmtDate(finishTime)}</td>
                               <td style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>{duration}</td>
                               <td style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{progress}</td>
-                              <td style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', wordBreak: 'break-all', whiteSpace: 'normal', lineHeight: 1.5 }}>
-                                {extraMsg}
+                              <td>
+                                {errorMsg ? (
+                                  <div style={{
+                                    fontSize: '0.75rem', color: 'var(--danger-500)', lineHeight: 1.5,
+                                    maxHeight: '80px', overflow: 'auto', wordBreak: 'break-all',
+                                    padding: '4px 8px', borderRadius: 'var(--radius-sm)',
+                                    background: 'rgba(239,68,68,0.05)',
+                                  }}>
+                                    {errorMsg}
+                                  </div>
+                                ) : (
+                                  <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>-</span>
+                                )}
+                              </td>
+                              <td style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', wordBreak: 'break-all', whiteSpace: 'normal', lineHeight: 1.5, maxWidth: '300px' }}>
+                                {extraMsg || '-'}
                               </td>
                             </tr>
                           );
