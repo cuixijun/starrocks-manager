@@ -159,45 +159,6 @@ function TaskRunsHistory({ taskRuns, taskRunsLoading, str }: {
                       <tr>
                         <td colSpan={8} style={{ padding: '0 16px 14px 42px', borderTop: 'none' }}>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            {/* Error Message Section */}
-                            {errorMsg && (
-                              <div style={{
-                                borderRadius: 'var(--radius-md)',
-                                border: '1px solid rgba(239,68,68,0.15)',
-                                backgroundColor: 'rgba(239,68,68,0.03)',
-                                overflow: 'hidden',
-                              }}>
-                                <div style={{
-                                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                  padding: '6px 12px', borderBottom: '1px solid rgba(239,68,68,0.1)',
-                                  backgroundColor: 'rgba(239,68,68,0.06)',
-                                }}>
-                                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.74rem', fontWeight: 600, color: 'var(--danger-600)' }}>
-                                    <AlertTriangle size={12} /> 错误信息
-                                  </span>
-                                  <button
-                                    onClick={e => { e.stopPropagation(); handleCopy(errorMsg, i, 'error'); }}
-                                    style={{
-                                      display: 'inline-flex', alignItems: 'center', gap: '4px',
-                                      padding: '2px 8px', borderRadius: 'var(--radius-sm)',
-                                      fontSize: '0.7rem', cursor: 'pointer', border: 'none',
-                                      backgroundColor: 'rgba(239,68,68,0.08)', color: 'var(--danger-500)',
-                                      transition: 'background-color 0.15s',
-                                    }}
-                                  >
-                                    {copiedIdx?.idx === i && copiedIdx?.type === 'error' ? <><Check size={10} /> 已复制</> : <><Copy size={10} /> 复制</>}
-                                  </button>
-                                </div>
-                                <div style={{
-                                  padding: '8px 12px', maxHeight: '100px', overflowY: 'auto',
-                                  fontSize: '0.73rem', lineHeight: 1.55, color: 'var(--danger-600)',
-                                  whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'var(--font-mono, monospace)',
-                                }}>
-                                  {errorMsg}
-                                </div>
-                              </div>
-                            )}
-
                             {/* Refresh Info Section */}
                             {extraMsg && (
                               <div style={{
@@ -231,8 +192,49 @@ function TaskRunsHistory({ taskRuns, taskRunsLoading, str }: {
                                   padding: '8px 12px', maxHeight: '140px', overflowY: 'auto',
                                   fontSize: '0.72rem', lineHeight: 1.5, color: 'var(--text-secondary)',
                                   whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'var(--font-mono, monospace)',
+                                  resize: 'vertical', minHeight: '40px',
                                 }}>
                                   {fmtJson(extraMsg)}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Error Message Section */}
+                            {errorMsg && (
+                              <div style={{
+                                borderRadius: 'var(--radius-md)',
+                                border: '1px solid rgba(239,68,68,0.15)',
+                                backgroundColor: 'rgba(239,68,68,0.03)',
+                                overflow: 'hidden',
+                              }}>
+                                <div style={{
+                                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                  padding: '6px 12px', borderBottom: '1px solid rgba(239,68,68,0.1)',
+                                  backgroundColor: 'rgba(239,68,68,0.06)',
+                                }}>
+                                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.74rem', fontWeight: 600, color: 'var(--danger-600)' }}>
+                                    <AlertTriangle size={12} /> 错误信息
+                                  </span>
+                                  <button
+                                    onClick={e => { e.stopPropagation(); handleCopy(errorMsg, i, 'error'); }}
+                                    style={{
+                                      display: 'inline-flex', alignItems: 'center', gap: '4px',
+                                      padding: '2px 8px', borderRadius: 'var(--radius-sm)',
+                                      fontSize: '0.7rem', cursor: 'pointer', border: 'none',
+                                      backgroundColor: 'rgba(239,68,68,0.08)', color: 'var(--danger-500)',
+                                      transition: 'background-color 0.15s',
+                                    }}
+                                  >
+                                    {copiedIdx?.idx === i && copiedIdx?.type === 'error' ? <><Check size={10} /> 已复制</> : <><Copy size={10} /> 复制</>}
+                                  </button>
+                                </div>
+                                <div style={{
+                                  padding: '8px 12px', maxHeight: '100px', overflowY: 'auto',
+                                  fontSize: '0.73rem', lineHeight: 1.55, color: 'var(--danger-600)',
+                                  whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'var(--font-mono, monospace)',
+                                  resize: 'vertical', minHeight: '40px',
+                                }}>
+                                  {errorMsg}
                                 </div>
                               </div>
                             )}
