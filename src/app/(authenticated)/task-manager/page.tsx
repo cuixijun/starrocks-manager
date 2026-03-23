@@ -5,11 +5,11 @@ import { useSession } from '@/hooks/useSession';
 import { useDataFetch } from '@/hooks/useDataFetch';
 import { usePagination } from '@/hooks/usePagination';
 import { str } from '@/lib/utils';
-import { PageHeader, StatusBadge, DatabaseBadge, SearchToolbar, DataTable, ErrorBanner, SuccessToast, CacheTimeBadge } from '@/components/ui';
+import { PageHeader, StatusBadge, DatabaseBadge, SearchToolbar, DataTable, ErrorBanner, SuccessToast, CacheTimeBadge, CommandLogButton } from '@/components/ui';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { Modal } from '@/components/ui/Modal';
 import SqlHighlighter from '@/components/SqlHighlighter';
-import { Trash2, CalendarClock, ChevronDown, ChevronRight, Loader2, Eye, Copy, Check, AlignLeft } from 'lucide-react';
+import { Trash2, CalendarClock, ChevronDown, ChevronRight, Loader2, Eye, Copy, Check, AlignLeft, RefreshCw } from 'lucide-react';
 import SearchableSelect from '@/components/SearchableSelect';
 
 const noWrap: React.CSSProperties = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
@@ -153,21 +153,30 @@ export default function TaskManagerPage() {
   return (
     <>
       <PageHeader title="Submit Task" breadcrumb={[{ label: '任务管理' }, { label: 'Submit Task' }]} description={<>管理 StarRocks Task · {tasks.length} 个 Task<CacheTimeBadge cachedAt={cachedAt} fromCache={fromCache} /></>}
-        onRefresh={() => { refresh(true); setTaskRuns({}); }} refreshing={refreshing} loading={loading} logSource="tasks" />
+      />
       <div className="page-body">
         <ErrorBanner error={error} />
         <SuccessToast message={success} />
-        <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
-          <div className="search-bar" style={{ flex: 1, minWidth: '200px', marginBottom: 0 }}>
-            <input className="input" placeholder="搜索 Task..." value={search} onChange={e => setSearch(e.target.value)} />
+        <div className="table-toolbar">
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center', flex: 1 }}>
+            <div className="search-bar" style={{ flex: 1, minWidth: '200px', marginBottom: 0 }}>
+              <input className="input" placeholder="搜索 Task..." value={search} onChange={e => setSearch(e.target.value)} />
+            </div>
+            <div style={{ width: '180px' }}>
+              <SearchableSelect
+                value={dbFilter}
+                onChange={setDbFilter}
+                placeholder="全部数据库"
+                options={[{ label: '全部数据库', value: 'all' }, ...allDbs.map(d => ({ label: d, value: d }))]}
+              />
+            </div>
           </div>
-          <div style={{ width: '180px' }}>
-            <SearchableSelect
-              value={dbFilter}
-              onChange={setDbFilter}
-              placeholder="全部数据库"
-              options={[{ label: '全部数据库', value: 'all' }, ...allDbs.map(d => ({ label: d, value: d }))]}
-            />
+          <div className="toolbar-actions">
+            <CommandLogButton source="tasks" title="Submit Task" />
+            <button className="btn btn-secondary" onClick={() => { refresh(true); setTaskRuns({}); }} disabled={loading || refreshing}>
+              <RefreshCw size={16} style={{ animation: (loading || refreshing) ? 'spin 1s linear infinite' : 'none' }} />
+              {refreshing ? '刷新中...' : '刷新'}
+            </button>
           </div>
         </div>
         <DataTable loading={loading} empty={filtered.length === 0} emptyIcon={<CalendarClock size={48} />}
