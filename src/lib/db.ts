@@ -129,13 +129,17 @@ async function recreatePool(sessionId: string): Promise<Pool | null> {
         'SELECT * FROM clusters WHERE host = ? AND port = ? AND is_active = 1'
       ).get(host, parseInt(portStr, 10)) as { host: string; port: number; username: string; password: string; default_db: string } | undefined;
       if (cluster) {
-        return createPool({
+        const pool = await createPool({
           host: cluster.host,
           port: cluster.port,
           user: cluster.username,
           password: cluster.password,
           database: cluster.default_db || undefined,
         });
+        // createPool stores under "user@host:port", but callers use "host:port"
+        // Alias the pool under the plain sessionId so subsequent lookups hit directly
+        pools.set(sessionId, pool);
+        return pool;
       }
     }
   } catch { /* ignore - might not have clusters table yet */ }
