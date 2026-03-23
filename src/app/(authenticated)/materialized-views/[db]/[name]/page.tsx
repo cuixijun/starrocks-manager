@@ -534,40 +534,7 @@ export default function MVDetailPage() {
       </div>
 
       <div className="page-body">
-        <div className="table-toolbar">
-          <div />
-          <div className="toolbar-actions">
-            <button
-              className="btn btn-secondary btn-sm"
-              onClick={handleRefreshMV}
-              disabled={refreshingMV}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
-            >
-              <Play size={13} />
-              {refreshingMV ? '刷新中...' : '手动刷新'}
-            </button>
-            <button
-              className="btn btn-secondary btn-sm"
-              onClick={() => { setShowAlterModal(true); setActionError(''); }}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
-            >
-              <Settings size={13} />
-              设置
-            </button>
-            <button
-              className="btn btn-sm"
-              onClick={() => { setShowDeleteModal(true); setActionError(''); }}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: '5px',
-                backgroundColor: 'transparent', color: 'var(--danger-500)',
-                border: '1px solid rgba(239,68,68,0.3)',
-              }}
-            >
-              <Trash2 size={13} />
-              删除
-            </button>
-          </div>
-        </div>
+
         {/* Success / Error messages */}
         {success && (
           <div style={{
@@ -589,12 +556,45 @@ export default function MVDetailPage() {
           <div className="loading-overlay"><div className="spinner" /> 加载中...</div>
         ) : (
           <>
-            <div className="tabs">
-              {tabs.map(t => (
-                <button key={t.key} className={`tab ${activeTab === t.key ? 'active' : ''}`} onClick={() => handleTabChange(t.key)}>
-                  {t.label}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0' }}>
+              <div className="tabs" style={{ marginBottom: 0 }}>
+                {tabs.map(t => (
+                  <button key={t.key} className={`tab ${activeTab === t.key ? 'active' : ''}`} onClick={() => handleTabChange(t.key)}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={handleRefreshMV}
+                  disabled={refreshingMV}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                >
+                  <Play size={13} />
+                  {refreshingMV ? '刷新中...' : '手动刷新'}
                 </button>
-              ))}
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => { setShowAlterModal(true); setActionError(''); }}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                >
+                  <Settings size={13} />
+                  设置
+                </button>
+                <button
+                  className="btn btn-sm"
+                  onClick={() => { setShowDeleteModal(true); setActionError(''); }}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: '5px',
+                    backgroundColor: 'transparent', color: 'var(--danger-500)',
+                    border: '1px solid rgba(239,68,68,0.3)',
+                  }}
+                >
+                  <Trash2 size={13} />
+                  删除
+                </button>
+              </div>
             </div>
 
             {/* ========== Schema Tab ========== */}
