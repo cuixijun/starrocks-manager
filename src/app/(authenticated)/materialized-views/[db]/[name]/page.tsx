@@ -416,10 +416,11 @@ export default function MVDetailPage() {
                         <tr>
                           <th style={{ width: '36px', textAlign: 'center' }}>#</th>
                           <th style={{ width: '80px' }}>状态</th>
-                          <th style={{ width: '160px' }}>开始时间</th>
-                          <th style={{ width: '160px' }}>结束时间</th>
-                          <th style={{ width: '70px' }}>耗时</th>
-                          <th style={{ width: '60px' }}>进度</th>
+                          <th style={{ width: '155px' }}>开始时间</th>
+                          <th style={{ width: '155px' }}>结束时间</th>
+                          <th style={{ width: '60px' }}>耗时</th>
+                          <th style={{ width: '50px' }}>进度</th>
+                          <th>刷新信息</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -430,6 +431,7 @@ export default function MVDetailPage() {
                           const finishTime = str(run.FINISH_TIME);
                           const progress = str(run.PROGRESS);
                           const errorMsg = str(run.ERROR_MESSAGE);
+                          const extraMsg = str(run.EXTRA_MESSAGE);
                           const isFailed = state === 'FAILED';
 
                           const fmtDate = (d: string) => {
@@ -468,20 +470,24 @@ export default function MVDetailPage() {
                                 <td style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{fmtDate(finishTime)}</td>
                                 <td style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>{duration}</td>
                                 <td style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{progress}</td>
+                                <td style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.5, maxWidth: '320px', wordBreak: 'break-all', whiteSpace: 'normal' }}>
+                                  {extraMsg || '-'}
+                                </td>
                               </tr>
-                              {/* Expandable error detail row */}
+                              {/* Error detail row for FAILED runs */}
                               {isFailed && errorMsg && (
                                 <tr>
-                                  <td colSpan={6} style={{ padding: '0 12px 12px 48px', borderTop: 'none' }}>
+                                  <td colSpan={7} style={{ padding: '0 12px 10px 48px', borderTop: 'none' }}>
                                     <div style={{
                                       display: 'flex', alignItems: 'flex-start', gap: '8px',
-                                      padding: '10px 14px', borderRadius: 'var(--radius-md)',
+                                      padding: '8px 12px', borderRadius: 'var(--radius-md)',
                                       backgroundColor: 'rgba(239,68,68,0.04)',
                                       border: '1px solid rgba(239,68,68,0.12)',
+                                      maxHeight: '120px', overflowY: 'auto',
                                     }}>
-                                      <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: '2px', color: 'var(--danger-500)' }} />
+                                      <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: '2px', color: 'var(--danger-500)' }} />
                                       <div style={{
-                                        fontSize: '0.76rem', lineHeight: 1.6, color: 'var(--danger-600)',
+                                        fontSize: '0.74rem', lineHeight: 1.55, color: 'var(--danger-600)',
                                         wordBreak: 'break-word', whiteSpace: 'pre-wrap',
                                       }}>
                                         {errorMsg}
