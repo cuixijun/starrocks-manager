@@ -127,10 +127,7 @@ const fmtJson = (s: string): string => {
 
   return (
     <div className="fade-in">
-      <p style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
-        显示最近 10 次执行记录（来自 <code style={{ padding: '1px 4px', backgroundColor: 'var(--bg-tertiary)', borderRadius: '3px' }}>information_schema.task_runs</code>）
-        <span style={{ marginLeft: '6px', fontSize: '0.72rem', color: 'var(--text-quaternary)' }}>点击行展开详情</span>
-      </p>
+
       {taskRunsLoading ? (
         <div className="loading-overlay"><div className="spinner" /> 加载执行记录...</div>
       ) : taskRuns.length === 0 ? (
