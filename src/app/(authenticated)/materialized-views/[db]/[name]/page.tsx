@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSession } from '@/hooks/useSession';
 import { useParams, useRouter } from 'next/navigation';
-import { Copy, Check, RefreshCw, Play, Power, Trash2, AlertTriangle, Clock, Settings } from 'lucide-react';
+import { Copy, Check, RefreshCw, Play, Power, Trash2, AlertTriangle, Clock, Settings, ChevronDown, ChevronRight } from 'lucide-react';
 import Breadcrumb from '@/components/Breadcrumb';
 import dynamic from 'next/dynamic';
 const SqlHighlighter = dynamic(() => import('@/components/SqlHighlighter'), { ssr: false });
@@ -24,6 +24,232 @@ const STATUS_STYLE: Record<string, { color: string }> = {
   RUNNING: { color: 'var(--primary-600)' },
   PENDING: { color: 'var(--warning-600)' },
 };
+
+// ========== Task Runs History Subcomponent ==========
+function TaskRunsHistory({ taskRuns, taskRunsLoading, str }: {
+  taskRuns: Record<string, unknown>[];
+  taskRunsLoading: boolean;
+  str: (v: unknown) => string;
+}) {
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
+  const [copiedIdx, setCopiedIdx] = useState<{ idx: number; type: string } | null>(null);
+
+  const toggleRow = (idx: number) => {
+    setExpandedRows(prev => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  };
+
+  const handleCopy = (text: string, idx: number, type: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedIdx({ idx, type });
+    setTimeout(() => setCopiedIdx(null), 2000);
+  };
+
+  const fmtDate = (d: string) => {
+    if (!d) return '';
+    try {
+      return new Date(d).toLocaleString('zh-CN', { hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    } catch { return d; }
+  };
+
+  const fmtJson = (s: string): string => {
+    try { return JSON.stringify(JSON.parse(s), null, 2); } catch { return s; }
+  };
+
+  return (
+    <div className="fade-in">
+      <p style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
+        显示最近 10 次执行记录（来自 <code style={{ padding: '1px 4px', backgroundColor: 'var(--bg-tertiary)', borderRadius: '3px' }}>information_schema.task_runs</code>）
+        <span style={{ marginLeft: '6px', fontSize: '0.72rem', color: 'var(--text-quaternary)' }}>点击行展开详情</span>
+      </p>
+      {taskRunsLoading ? (
+        <div className="loading-overlay"><div className="spinner" /> 加载执行记录...</div>
+      ) : taskRuns.length === 0 ? (
+        <div className="empty-state"><div className="empty-state-text">暂无执行记录</div></div>
+      ) : (
+        <div className="table-container">
+          <table style={{ width: '100%' }}>
+            <thead>
+              <tr>
+                <th style={{ width: '28px' }} />
+                <th style={{ width: '36px', textAlign: 'center' }}>#</th>
+                <th style={{ width: '80px' }}>状态</th>
+                <th style={{ width: '160px' }}>开始时间</th>
+                <th style={{ width: '160px' }}>结束时间</th>
+                <th style={{ width: '65px' }}>耗时</th>
+                <th style={{ width: '55px' }}>进度</th>
+                <th>摘要</th>
+              </tr>
+            </thead>
+            <tbody>
+              {taskRuns.map((run, i) => {
+                const state = str(run.STATE || run.STATUS);
+                const stStyle = STATUS_STYLE[state] || STATUS_STYLE.PENDING;
+                const createTime = str(run.CREATE_TIME);
+                const finishTime = str(run.FINISH_TIME);
+                const progress = str(run.PROGRESS);
+                const errorMsg = str(run.ERROR_MESSAGE);
+                const extraMsg = str(run.EXTRA_MESSAGE);
+                const isFailed = state === 'FAILED';
+                const isExpanded = expandedRows.has(i);
+                const hasDetail = !!(errorMsg || extraMsg);
+
+                let duration = '';
+                if (createTime && finishTime) {
+                  const start = new Date(createTime).getTime();
+                  const end = new Date(finishTime).getTime();
+                  if (!isNaN(start) && !isNaN(end)) {
+                    const secs = Math.round((end - start) / 1000);
+                    duration = secs >= 60 ? `${Math.floor(secs / 60)}m ${secs % 60}s` : `${secs}s`;
+                  }
+                }
+
+                // Summary: short label for quick scan
+                const summary = isFailed && errorMsg
+                  ? errorMsg.split(':').slice(0, 2).join(':').substring(0, 80) + (errorMsg.length > 80 ? '...' : '')
+                  : state === 'SUCCESS' ? '执行成功' : state === 'RUNNING' ? '执行中...' : '-';
+
+                return (
+                  <React.Fragment key={i}>
+                    <tr
+                      onClick={() => hasDetail && toggleRow(i)}
+                      style={{
+                        cursor: hasDetail ? 'pointer' : 'default',
+                        borderBottom: isExpanded ? 'none' : undefined,
+                        transition: 'background-color 0.15s',
+                      }}
+                      onMouseEnter={e => { if (hasDetail) (e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'); }}
+                      onMouseLeave={e => { e.currentTarget.style.backgroundColor = ''; }}
+                    >
+                      <td style={{ textAlign: 'center', padding: '0 4px', color: 'var(--text-quaternary)' }}>
+                        {hasDetail ? (
+                          isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />
+                        ) : null}
+                      </td>
+                      <td style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.76rem' }}>{i + 1}</td>
+                      <td>
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', gap: '5px',
+                          fontSize: '0.74rem', fontWeight: 600, color: stStyle.color,
+                          padding: '2px 8px', borderRadius: '999px',
+                          backgroundColor: isFailed ? 'rgba(239,68,68,0.08)' : state === 'SUCCESS' ? 'rgba(22,163,74,0.08)' : 'rgba(59,130,246,0.08)',
+                        }}>
+                          <span style={{ width: '5px', height: '5px', borderRadius: '50%', backgroundColor: stStyle.color }} />
+                          {state}
+                        </span>
+                      </td>
+                      <td style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{fmtDate(createTime)}</td>
+                      <td style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{fmtDate(finishTime)}</td>
+                      <td style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>{duration}</td>
+                      <td style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{progress}</td>
+                      <td style={{
+                        fontSize: '0.75rem', color: isFailed ? 'var(--danger-500)' : 'var(--text-tertiary)',
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '300px',
+                      }}>
+                        {summary}
+                      </td>
+                    </tr>
+
+                    {/* Expanded detail panel */}
+                    {isExpanded && hasDetail && (
+                      <tr>
+                        <td colSpan={8} style={{ padding: '0 16px 14px 42px', borderTop: 'none' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {/* Error Message Section */}
+                            {errorMsg && (
+                              <div style={{
+                                borderRadius: 'var(--radius-md)',
+                                border: '1px solid rgba(239,68,68,0.15)',
+                                backgroundColor: 'rgba(239,68,68,0.03)',
+                                overflow: 'hidden',
+                              }}>
+                                <div style={{
+                                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                  padding: '6px 12px', borderBottom: '1px solid rgba(239,68,68,0.1)',
+                                  backgroundColor: 'rgba(239,68,68,0.06)',
+                                }}>
+                                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.74rem', fontWeight: 600, color: 'var(--danger-600)' }}>
+                                    <AlertTriangle size={12} /> 错误信息
+                                  </span>
+                                  <button
+                                    onClick={e => { e.stopPropagation(); handleCopy(errorMsg, i, 'error'); }}
+                                    style={{
+                                      display: 'inline-flex', alignItems: 'center', gap: '4px',
+                                      padding: '2px 8px', borderRadius: 'var(--radius-sm)',
+                                      fontSize: '0.7rem', cursor: 'pointer', border: 'none',
+                                      backgroundColor: 'rgba(239,68,68,0.08)', color: 'var(--danger-500)',
+                                      transition: 'background-color 0.15s',
+                                    }}
+                                  >
+                                    {copiedIdx?.idx === i && copiedIdx?.type === 'error' ? <><Check size={10} /> 已复制</> : <><Copy size={10} /> 复制</>}
+                                  </button>
+                                </div>
+                                <div style={{
+                                  padding: '8px 12px', maxHeight: '100px', overflowY: 'auto',
+                                  fontSize: '0.73rem', lineHeight: 1.55, color: 'var(--danger-600)',
+                                  whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'var(--font-mono, monospace)',
+                                }}>
+                                  {errorMsg}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Refresh Info Section */}
+                            {extraMsg && (
+                              <div style={{
+                                borderRadius: 'var(--radius-md)',
+                                border: '1px solid var(--border-secondary)',
+                                backgroundColor: 'var(--bg-secondary)',
+                                overflow: 'hidden',
+                              }}>
+                                <div style={{
+                                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                  padding: '6px 12px', borderBottom: '1px solid var(--border-secondary)',
+                                  backgroundColor: 'var(--bg-tertiary)',
+                                }}>
+                                  <span style={{ fontSize: '0.74rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                                    刷新信息
+                                  </span>
+                                  <button
+                                    onClick={e => { e.stopPropagation(); handleCopy(extraMsg, i, 'extra'); }}
+                                    style={{
+                                      display: 'inline-flex', alignItems: 'center', gap: '4px',
+                                      padding: '2px 8px', borderRadius: 'var(--radius-sm)',
+                                      fontSize: '0.7rem', cursor: 'pointer', border: 'none',
+                                      backgroundColor: 'var(--bg-quaternary, rgba(0,0,0,0.04))', color: 'var(--text-tertiary)',
+                                      transition: 'background-color 0.15s',
+                                    }}
+                                  >
+                                    {copiedIdx?.idx === i && copiedIdx?.type === 'extra' ? <><Check size={10} /> 已复制</> : <><Copy size={10} /> 复制</>}
+                                  </button>
+                                </div>
+                                <div style={{
+                                  padding: '8px 12px', maxHeight: '140px', overflowY: 'auto',
+                                  fontSize: '0.72rem', lineHeight: 1.5, color: 'var(--text-secondary)',
+                                  whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'var(--font-mono, monospace)',
+                                }}>
+                                  {fmtJson(extraMsg)}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function MVDetailPage() {
   const { session } = useSession();
@@ -401,109 +627,11 @@ export default function MVDetailPage() {
 
             {/* ========== Execution History Tab ========== */}
             {activeTab === 'history' && (
-              <div className="fade-in">
-                <p style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', marginBottom: '12px' }}>
-                  显示最近 10 次执行记录（来自 <code style={{ padding: '1px 4px', backgroundColor: 'var(--bg-tertiary)', borderRadius: '3px' }}>information_schema.task_runs</code>）
-                </p>
-                {taskRunsLoading ? (
-                  <div className="loading-overlay"><div className="spinner" /> 加载执行记录...</div>
-                ) : taskRuns.length === 0 ? (
-                  <div className="empty-state"><div className="empty-state-text">暂无执行记录</div></div>
-                ) : (
-                  <div className="table-container">
-                    <table style={{ width: '100%' }}>
-                      <thead>
-                        <tr>
-                          <th style={{ width: '36px', textAlign: 'center' }}>#</th>
-                          <th style={{ width: '80px' }}>状态</th>
-                          <th style={{ width: '155px' }}>开始时间</th>
-                          <th style={{ width: '155px' }}>结束时间</th>
-                          <th style={{ width: '60px' }}>耗时</th>
-                          <th style={{ width: '50px' }}>进度</th>
-                          <th>刷新信息</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {taskRuns.map((run, i) => {
-                          const state = str(run.STATE || run.STATUS);
-                          const stStyle = STATUS_STYLE[state] || STATUS_STYLE.PENDING;
-                          const createTime = str(run.CREATE_TIME);
-                          const finishTime = str(run.FINISH_TIME);
-                          const progress = str(run.PROGRESS);
-                          const errorMsg = str(run.ERROR_MESSAGE);
-                          const extraMsg = str(run.EXTRA_MESSAGE);
-                          const isFailed = state === 'FAILED';
-
-                          const fmtDate = (d: string) => {
-                            if (!d) return '';
-                            try {
-                              return new Date(d).toLocaleString('zh-CN', { hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                            } catch { return d; }
-                          };
-
-                          let duration = '';
-                          if (createTime && finishTime) {
-                            const start = new Date(createTime).getTime();
-                            const end = new Date(finishTime).getTime();
-                            if (!isNaN(start) && !isNaN(end)) {
-                              const secs = Math.round((end - start) / 1000);
-                              duration = secs >= 60 ? `${Math.floor(secs / 60)}m ${secs % 60}s` : `${secs}s`;
-                            }
-                          }
-
-                          return (
-                            <React.Fragment key={i}>
-                              <tr style={{ borderBottom: isFailed && errorMsg ? 'none' : undefined }}>
-                                <td style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.76rem' }}>{i + 1}</td>
-                                <td>
-                                  <span style={{
-                                    display: 'inline-flex', alignItems: 'center', gap: '5px',
-                                    fontSize: '0.76rem', fontWeight: 600, color: stStyle.color,
-                                    padding: '2px 8px', borderRadius: '999px',
-                                    backgroundColor: isFailed ? 'rgba(239,68,68,0.08)' : state === 'SUCCESS' ? 'rgba(22,163,74,0.08)' : 'rgba(59,130,246,0.08)',
-                                  }}>
-                                    <span style={{ width: '5px', height: '5px', borderRadius: '50%', backgroundColor: stStyle.color }} />
-                                    {state}
-                                  </span>
-                                </td>
-                                <td style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{fmtDate(createTime)}</td>
-                                <td style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{fmtDate(finishTime)}</td>
-                                <td style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>{duration}</td>
-                                <td style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{progress}</td>
-                                <td style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.5, maxWidth: '320px', wordBreak: 'break-all', whiteSpace: 'normal' }}>
-                                  {extraMsg || '-'}
-                                </td>
-                              </tr>
-                              {/* Error detail row for FAILED runs */}
-                              {isFailed && errorMsg && (
-                                <tr>
-                                  <td colSpan={7} style={{ padding: '0 12px 10px 48px', borderTop: 'none' }}>
-                                    <div style={{
-                                      display: 'flex', alignItems: 'flex-start', gap: '8px',
-                                      padding: '8px 12px', borderRadius: 'var(--radius-md)',
-                                      backgroundColor: 'rgba(239,68,68,0.04)',
-                                      border: '1px solid rgba(239,68,68,0.12)',
-                                      maxHeight: '120px', overflowY: 'auto',
-                                    }}>
-                                      <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: '2px', color: 'var(--danger-500)' }} />
-                                      <div style={{
-                                        fontSize: '0.74rem', lineHeight: 1.55, color: 'var(--danger-600)',
-                                        wordBreak: 'break-word', whiteSpace: 'pre-wrap',
-                                      }}>
-                                        {errorMsg}
-                                      </div>
-                                    </div>
-                                  </td>
-                                </tr>
-                              )}
-                            </React.Fragment>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
+              <TaskRunsHistory
+                taskRuns={taskRuns}
+                taskRunsLoading={taskRunsLoading}
+                str={str}
+              />
             )}
           </>
         )}
