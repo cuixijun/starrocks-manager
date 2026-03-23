@@ -224,12 +224,12 @@ const fmtJson = (s: string): string => {
                       <tr>
                         <td colSpan={8} style={{ padding: '0', borderTop: 'none' }}>
                           <div style={{
-                            margin: '0 12px 12px 42px',
-                            padding: '12px',
-                            borderRadius: '10px',
+                            margin: '0 12px 10px 16px',
+                            padding: '8px',
+                            borderRadius: '8px',
                             backgroundColor: 'var(--bg-secondary)',
                             border: '1px solid var(--border-secondary)',
-                            display: 'flex', flexDirection: 'column', gap: '10px',
+                            display: 'flex', flexDirection: 'column', gap: '8px',
                           }}>
                             {/* Refresh Info Card */}
                             {extraMsg && (
