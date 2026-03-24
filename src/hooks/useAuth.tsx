@@ -36,6 +36,10 @@ interface AuthState {
 
 const AuthContext = createContext<AuthState | null>(null);
 
+// Module-level cache for latest SSE health data, so cluster-manager can read instantly on mount
+let _latestHealthCache: Record<string, { status: string; version?: string; checkedAt: string }> = {};
+export function getLatestHealthCache() { return _latestHealthCache; }
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [clusters, setClusters] = useState<ClusterBrief[]>([]);
@@ -177,6 +181,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const data = JSON.parse(event.data);
           const clustersHealth = data.clusters as Record<string, { status: string; version?: string; checkedAt: string }>;
+
+          // Cache globally for instant access by cluster-manager page
+          _latestHealthCache = clustersHealth;
 
           // Dispatch event for cluster-manager page
           window.dispatchEvent(new CustomEvent('cluster-health-update', { detail: clustersHealth }));

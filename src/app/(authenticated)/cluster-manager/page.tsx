@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth, getLatestHealthCache } from '@/hooks/useAuth';
 import { PageHeader, ErrorBanner, SuccessToast, DataTable } from '@/components/ui';
 import { Network, Plus, Zap, Trash2, Pencil, X, Check, AlertCircle, RefreshCw, Power } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
@@ -37,8 +37,20 @@ export default function ClusterManagerPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
   const [activating, setActivating] = useState<number | null>(null);
 
-  // Health status per cluster
-  const [healthMap, setHealthMap] = useState<Record<number, HealthResult>>({});
+  // Health status per cluster — initialize from global SSE cache for instant display
+  const [healthMap, setHealthMap] = useState<Record<number, HealthResult>>(() => {
+    const cached = getLatestHealthCache();
+    const initial: Record<number, HealthResult> = {};
+    for (const [idStr, val] of Object.entries(cached)) {
+      const id = parseInt(idStr, 10);
+      initial[id] = {
+        status: val.status as HealthResult['status'],
+        version: val.version,
+        checkedAt: val.checkedAt,
+      };
+    }
+    return initial;
+  });
   const healthAbortRef = useRef<AbortController | null>(null);
 
   // Form state
