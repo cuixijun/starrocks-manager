@@ -62,16 +62,20 @@ export async function GET(request: NextRequest) {
               // Strategy: try pool first (zero-cost), fall back to direct connection
               const pool = getPool(sessionId);
               if (pool) {
-                // ── Pool available: reuse existing connection ──
+                // ── Pool available: reuse existing connection with timeout ──
                 try {
-                  const [rows] = await pool.query('SELECT version() as v');
-                  const row = (rows as Array<{ v: string }>)[0];
+                  const queryPromise = pool.query('SELECT version() as v');
+                  const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('timeout')), 2000)
+                  );
+                  const [rows] = await Promise.race([queryPromise, timeoutPromise]) as [Array<{ v: string }>];
+                  const row = rows[0];
                   version = row?.v;
                   status = 'online';
                   clearConnectionFailure(sessionId);
-                } catch { /* pool query failed — cluster offline */ }
+                } catch { /* pool query failed or timed out — cluster offline */ }
               } else {
-                // ── No pool: lightweight direct connection ──
+                // ── No pool: lightweight direct connection with short timeout ──
                 let conn;
                 try {
                   conn = await mysql.createConnection({
@@ -79,7 +83,7 @@ export async function GET(request: NextRequest) {
                     port: c.port,
                     user: c.username,
                     password: c.password,
-                    connectTimeout: 3000,
+                    connectTimeout: 1500, // 1.5s for fast failure
                   });
                   const [rows] = await conn.query('SELECT version() as v');
                   const row = (rows as Array<{ v: string }>)[0];
