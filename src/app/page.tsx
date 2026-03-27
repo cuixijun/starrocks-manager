@@ -111,14 +111,7 @@ export default function LoginPage() {
           </div>
         </form>
 
-        <div style={{
-          marginTop: '16px', textAlign: 'center',
-          fontSize: '0.75rem', color: 'var(--text-tertiary)',
-          padding: '12px 16px',
-          borderTop: '1px solid var(--border-secondary)',
-        }}>
-          首次使用？默认账号 <strong style={{ color: 'var(--text-secondary)' }}>admin</strong> / <strong style={{ color: 'var(--text-secondary)' }}>Admin@2024</strong>
-        </div>
+
 
         <div className="login-footer">
           StarRocks Manager — 数据库管理平台
