@@ -9,13 +9,13 @@ import SearchableSelect from '@/components/SearchableSelect';
 import Breadcrumb from '@/components/Breadcrumb';
 import { classifyGrants, type CatalogGrant } from '@/utils/grantClassifier';
 import {
-  Users, Plus, Trash2, RefreshCw, Search, X,
+  Users, Plus, Trash2, RefreshCw, Search, X, Lock,
   ChevronUp, ChevronDown, ChevronsUpDown, Clock, Key, ShieldCheck, ChevronRight, ChevronLeft,
-  Shield, ShieldOff, UserPlus, Eye, Wrench, Database, Code, FolderOpen,
+  Shield, ShieldOff, UserPlus, Eye, Wrench, Database, Code, FolderOpen, Check,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/fetch-patch';
 
-const SYSTEM_ROLES = new Set(['root', 'cluster_admin', 'db_admin', 'user_admin', 'public']);
+const SYSTEM_ROLES = new Set(['root', 'cluster_admin', 'db_admin', 'user_admin', 'security_admin', 'public']);
 
 interface UserEntry {
   identity: string;   // e.g. 'root'@'%'
@@ -38,7 +38,18 @@ function parseIdentity(identity: string): { user: string; host: string } {
   return { user: identity, host: '%' };
 }
 
-const DEFAULT_FORM = { username: '', host: '%', password: '', roles: '' };
+const DEFAULT_FORM = { username: '', host: '%', password: '' };
+
+function validatePassword(pwd: string): { valid: boolean; checks: { label: string; pass: boolean }[] } {
+  const checks = [
+    { label: '至少8位', pass: pwd.length >= 8 },
+    { label: '大写字母', pass: /[A-Z]/.test(pwd) },
+    { label: '小写字母', pass: /[a-z]/.test(pwd) },
+    { label: '数字', pass: /[0-9]/.test(pwd) },
+    { label: '特殊字符', pass: /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(pwd) },
+  ];
+  return { valid: checks.every(c => c.pass), checks };
+}
 
 export default function UsersPage() {
   const { session } = useSession();
@@ -55,7 +66,14 @@ export default function UsersPage() {
   const [expandedGrants, setExpandedGrants] = useState<Set<string>>(new Set());
   const [fromCache, setFromCache] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null); // user identity pending delete
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  // Password change modal
+  const [showPwdChange, setShowPwdChange] = useState<string | null>(null); // identity
+  const [newPwd, setNewPwd] = useState('');
+  const [pwdChanging, setPwdChanging] = useState(false);
+  // Create form roles (multi-select)
+  const [createRoles, setCreateRoles] = useState<Set<string>>(new Set());
+  const [createAllRoles, setCreateAllRoles] = useState<string[]>([]);
   // Privilege detail modal
   const [showPrivDetail, setShowPrivDetail] = useState<{ identity: string; grants: string[]; catalogGrants?: { grant: string; catalog: string }[] } | null>(null);
 
@@ -160,9 +178,11 @@ export default function UsersPage() {
 
   async function handleCreate() {
     if (!session || !form.username) return;
+    const pwdCheck = validatePassword(form.password);
+    if (!pwdCheck.valid) { setError('密码不满足复杂度要求'); return; }
     setCreating(true); setError('');
     try {
-      const roles = form.roles ? form.roles.split(',').map(r => r.trim()).filter(Boolean) : [];
+      const roles = Array.from(createRoles);
       const res = await apiFetch('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -176,9 +196,40 @@ export default function UsersPage() {
       });
       const data = await res.json();
       if (data.error) setError(data.error);
-      else { setShowCreate(false); setForm(DEFAULT_FORM); setSuccess('已创建'); fetchUsers(); }
+      else { setShowCreate(false); setForm(DEFAULT_FORM); setCreateRoles(new Set()); setSuccess('已创建'); fetchUsers(); }
     } catch (err) { setError(String(err)); }
     finally { setCreating(false); }
+  }
+
+  async function fetchCreateRoles() {
+    if (createAllRoles.length > 0 || !session) return;
+    try {
+      const res = await apiFetch(`/api/roles?sessionId=${encodeURIComponent(session.sessionId)}`);
+      const data = await res.json();
+      if (!data.error) {
+        const names: string[] = (data.roles || []).map((r: Record<string, unknown>) =>
+          String(r['Name'] || r['name'] || r['Value'] || Object.values(r)[0] || '')
+        );
+        setCreateAllRoles(names);
+      }
+    } catch { /* ignore */ }
+  }
+
+  async function handlePasswordChange() {
+    if (!session || !showPwdChange || !newPwd) return;
+    const { user, host } = parseIdentity(showPwdChange);
+    setPwdChanging(true); setError('');
+    try {
+      const res = await apiFetch('/api/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: session.sessionId, username: user, host, password: newPwd }),
+      });
+      const data = await res.json();
+      if (data.error) setError(data.error);
+      else { setShowPwdChange(null); setNewPwd(''); setSuccess('密码修改成功'); }
+    } catch (err) { setError(String(err)); }
+    finally { setPwdChanging(false); }
   }
 
   async function handleDelete(identity: string) {
@@ -710,7 +761,7 @@ export default function UsersPage() {
                   <th>类型</th>
                   <th>角色</th>
                   <th>权限项</th>
-                  <th style={{ textAlign: 'center', width: '130px' }}>操作</th>
+                  <th style={{ textAlign: 'center', width: '170px' }}>操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -866,6 +917,15 @@ export default function UsersPage() {
                             <UserPlus size={14} />
                           </button>
                           <button
+                            className={`btn-action ${isSystem ? '' : 'btn-action-accent'}`}
+                            disabled={isSystem}
+                            onClick={() => !isSystem && (() => { setShowPwdChange(u.identity); setNewPwd(''); })()}
+                            title={isSystem ? '系统用户请通过命令行管理' : '修改密码'}
+                            style={isSystem ? { opacity: 0.4, cursor: 'not-allowed', backgroundColor: 'transparent', borderColor: 'var(--border-secondary)', color: 'var(--text-tertiary)' } : undefined}
+                          >
+                            <Lock size={14} />
+                          </button>
+                          <button
                             className={`btn-action ${isSystem ? '' : 'btn-action-danger'}`}
                             disabled={isSystem}
                             onClick={() => !isSystem && handleDelete(u.identity)}
@@ -898,18 +958,20 @@ export default function UsersPage() {
         )}
 
         {/* Create User Modal */}
-        {showCreate && (
-          <div className="modal-overlay" onClick={() => setShowCreate(false)}>
-            <div className="modal" onClick={e => e.stopPropagation()}>
+        {showCreate && (() => {
+          const pwdCheck = validatePassword(form.password);
+          return (
+          <div className="modal-overlay" onClick={() => { setShowCreate(false); setCreateRoles(new Set()); }}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '520px' }}>
               <div className="modal-header">
                 <div className="modal-title">创建用户</div>
-                <button className="btn-ghost btn-icon" onClick={() => setShowCreate(false)}><X size={18} /></button>
+                <button className="btn-ghost btn-icon" onClick={() => { setShowCreate(false); setCreateRoles(new Set()); }}><X size={18} /></button>
               </div>
               <div className="modal-body">
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">用户名 <span style={{ color: 'var(--danger-500)' }}>*</span></label>
-                    <input className="input" placeholder="username" value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} />
+                    <input className="input" placeholder="username" value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} autoFocus />
                   </div>
                   <div className="form-group">
                     <label className="form-label">主机</label>
@@ -917,23 +979,120 @@ export default function UsersPage() {
                   </div>
                 </div>
                 <div className="form-group">
-                  <label className="form-label">密码</label>
-                  <input className="input" type="password" placeholder="（留空则不设密码）" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} />
+                  <label className="form-label">密码 <span style={{ color: 'var(--danger-500)' }}>*</span></label>
+                  <input className="input" type="password" placeholder="请输入密码" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} />
+                  {form.password && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
+                      {pwdCheck.checks.map(c => (
+                        <span key={c.label} style={{
+                          display: 'inline-flex', alignItems: 'center', gap: '3px',
+                          fontSize: '0.7rem', padding: '1px 6px', borderRadius: '999px',
+                          backgroundColor: c.pass ? 'rgba(22,163,74,0.08)' : 'rgba(239,68,68,0.08)',
+                          color: c.pass ? 'var(--success-600)' : 'var(--danger-500)',
+                          border: `1px solid ${c.pass ? 'rgba(22,163,74,0.2)' : 'rgba(239,68,68,0.15)'}`,
+                        }}>
+                          {c.pass ? <Check size={10} /> : <X size={10} />} {c.label}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="form-group">
-                  <label className="form-label">授予角色（逗号分隔，可选）</label>
-                  <input className="input" placeholder="role1, role2" value={form.roles} onChange={e => setForm({ ...form, roles: e.target.value })} />
+                  <label className="form-label">授予角色（可选）</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '6px' }}>
+                    {Array.from(createRoles).map(r => (
+                      <span key={r} style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '4px',
+                        padding: '2px 8px', borderRadius: '999px', fontSize: '0.75rem', fontWeight: 500,
+                        backgroundColor: 'rgba(22,163,74,0.08)', color: 'var(--success-600)',
+                        border: '1px solid rgba(22,163,74,0.2)',
+                      }}>
+                        <ShieldCheck size={10} />{r}
+                        <button onClick={() => { const n = new Set(createRoles); n.delete(r); setCreateRoles(n); }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'inherit', display: 'flex' }}>
+                          <X size={10} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  <select
+                    className="input"
+                    value=""
+                    onFocus={fetchCreateRoles}
+                    onChange={e => {
+                      if (e.target.value) {
+                        const n = new Set(createRoles);
+                        n.add(e.target.value);
+                        setCreateRoles(n);
+                      }
+                    }}
+                  >
+                    <option value="">选择角色...</option>
+                    {createAllRoles.filter(r => !createRoles.has(r)).map(r => (
+                      <option key={r} value={r}>{r}{SYSTEM_ROLES.has(r) ? ' (系统)' : ''}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
               <div className="modal-footer">
-                <button className="btn btn-secondary" onClick={() => setShowCreate(false)}>取消</button>
-                <button className="btn btn-primary" onClick={handleCreate} disabled={creating || !form.username}>
+                <button className="btn btn-secondary" onClick={() => { setShowCreate(false); setCreateRoles(new Set()); }}>取消</button>
+                <button className="btn btn-primary" onClick={handleCreate} disabled={creating || !form.username || !pwdCheck.valid}>
                   {creating ? <span className="spinner" /> : <Plus size={16} />} 创建
                 </button>
               </div>
             </div>
           </div>
-        )}
+          );
+        })()}
+
+        {/* Change Password Modal */}
+        {showPwdChange && (() => {
+          const pwdCheck = validatePassword(newPwd);
+          return (
+          <div className="modal-overlay" onClick={() => { if (!pwdChanging) { setShowPwdChange(null); setNewPwd(''); } }}>
+            <div className="modal" style={{ maxWidth: '440px' }} onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <h3 className="modal-title"><Lock size={18} /> 修改密码</h3>
+                <button className="btn-ghost btn-icon" onClick={() => { setShowPwdChange(null); setNewPwd(''); }}><X size={18} /></button>
+              </div>
+              <div className="modal-body">
+                <div style={{
+                  padding: '8px 12px', borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--bg-secondary)', marginBottom: '12px',
+                  fontSize: '0.82rem', color: 'var(--text-secondary)',
+                }}>
+                  用户: <code style={{ fontWeight: 600 }}>{showPwdChange}</code>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">新密码 <span style={{ color: 'var(--danger-500)' }}>*</span></label>
+                  <input className="input" type="password" placeholder="请输入新密码" value={newPwd} onChange={e => setNewPwd(e.target.value)} autoFocus />
+                  {newPwd && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
+                      {pwdCheck.checks.map(c => (
+                        <span key={c.label} style={{
+                          display: 'inline-flex', alignItems: 'center', gap: '3px',
+                          fontSize: '0.7rem', padding: '1px 6px', borderRadius: '999px',
+                          backgroundColor: c.pass ? 'rgba(22,163,74,0.08)' : 'rgba(239,68,68,0.08)',
+                          color: c.pass ? 'var(--success-600)' : 'var(--danger-500)',
+                          border: `1px solid ${c.pass ? 'rgba(22,163,74,0.2)' : 'rgba(239,68,68,0.15)'}`,
+                        }}>
+                          {c.pass ? <Check size={10} /> : <X size={10} />} {c.label}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button className="btn btn-secondary" onClick={() => { setShowPwdChange(null); setNewPwd(''); }} disabled={pwdChanging}>取消</button>
+                <button className="btn btn-primary" onClick={handlePasswordChange} disabled={pwdChanging || !pwdCheck.valid}>
+                  {pwdChanging ? <><span className="spinner" /> 修改中...</> : <><Lock size={16} /> 确认修改</>}
+                </button>
+              </div>
+            </div>
+          </div>
+          );
+        })()}
 
         {/* Grant Privilege Modal - Wizard */}
         {showGrant && (

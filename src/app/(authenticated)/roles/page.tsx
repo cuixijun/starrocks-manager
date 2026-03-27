@@ -25,7 +25,7 @@ function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
     : <ChevronDown size={13} style={{ color: 'var(--primary-500)' }} />;
 }
 
-const SYSTEM_ROLES = new Set(['root', 'cluster_admin', 'db_admin', 'user_admin', 'public']);
+const SYSTEM_ROLES = new Set(['root', 'cluster_admin', 'db_admin', 'user_admin', 'security_admin', 'public']);
 
 export default function RolesPage() {
   const { session } = useSession();
@@ -429,7 +429,12 @@ export default function RolesPage() {
 
   const filtered = roles
     .filter(name => name.toLowerCase().includes(search.toLowerCase()))
-    .sort((a, b) => sortDir === 'asc' ? a.localeCompare(b) : b.localeCompare(a));
+    .sort((a, b) => {
+      const aSystem = SYSTEM_ROLES.has(a) ? 1 : 0;
+      const bSystem = SYSTEM_ROLES.has(b) ? 1 : 0;
+      if (aSystem !== bSystem) return aSystem - bSystem;
+      return sortDir === 'asc' ? a.localeCompare(b) : b.localeCompare(a);
+    });
 
   const systemCount = filtered.filter(n => SYSTEM_ROLES.has(n)).length;
   const customCount = filtered.length - systemCount;

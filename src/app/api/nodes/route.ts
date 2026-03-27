@@ -74,7 +74,9 @@ export async function POST(request: NextRequest) {
       else if (nodeType === 'be') sql = `ALTER SYSTEM DROP BACKEND ${hostPort}`;
       else if (nodeType === 'broker') sql = `ALTER SYSTEM DROP BROKER ${brokerName || 'broker0'} ${hostPort}`;
     } else if (action === 'decommission') {
-      if (nodeType === 'cn') sql = `ALTER SYSTEM DECOMMISSION COMPUTE NODE ${hostPort}`;
+      // StarRocks does NOT support DECOMMISSION COMPUTE NODE — only BE supports decommission
+      // For CN nodes, use DROP instead (CN is stateless, no data migration needed)
+      if (nodeType === 'cn') sql = `ALTER SYSTEM DROP COMPUTE NODE ${hostPort}`;
       else if (nodeType === 'be') sql = `ALTER SYSTEM DECOMMISSION BACKEND ${hostPort}`;
     }
 

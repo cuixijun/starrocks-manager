@@ -71,11 +71,11 @@ export async function createPool(config: StarRocksConnectionConfig): Promise<Poo
     password: config.password,
     database: config.database || undefined,
     waitForConnections: true,
-    connectionLimit: 5,
+    connectionLimit: 1,       // 单连接复用，所有查询排队使用同一个连接
     queueLimit: 0,
-    connectTimeout: 5000, // Reduced from 10s to 5s
-    enableKeepAlive: true,
-    keepAliveInitialDelay: 30000,
+    connectTimeout: 5000,
+    enableKeepAlive: true,    // 保持连接存活，防止被服务端超时断开
+    keepAliveInitialDelay: 30000, // 30秒发一次 keepAlive 心跳
   };
 
   const pool = mysql.createPool(poolOptions);
@@ -92,6 +92,10 @@ export async function createPool(config: StarRocksConnectionConfig): Promise<Poo
     try { await pool.end(); } catch { /* ignore */ }
     throw err;
   }
+
+  // Activate all granted roles (e.g. cluster_admin for NODE privilege)
+  // Uses the promise-based pool.query which is compatible with mysql2/promise
+  try { await pool.query('SET ROLE ALL'); } catch { /* ignore — user may not have extra roles */ }
 
   // Clear failure cache on success
   failedConnections.delete(sessionId);
@@ -270,4 +274,37 @@ export async function testConnection(config: StarRocksConnectionConfig): Promise
       await connection.end();
     }
   }
+}
+
+// ── Graceful shutdown: close all pools on process exit ──
+async function closeAllPools(): Promise<void> {
+  const entries = Array.from(pools.entries());
+  const closed = new Set<Pool>();
+  for (const [key, pool] of entries) {
+    if (!closed.has(pool)) {
+      closed.add(pool);
+      try { await pool.end(); } catch { /* ignore */ }
+    }
+    pools.delete(key);
+  }
+  if (closed.size > 0) {
+    console.log(`[DB] Graceful shutdown: closed ${closed.size} connection pool(s)`);
+  }
+}
+
+// Register shutdown hooks (only once via global flag)
+const globalShutdown = globalThis as unknown as { __dbShutdownRegistered?: boolean };
+if (!globalShutdown.__dbShutdownRegistered) {
+  globalShutdown.__dbShutdownRegistered = true;
+
+  const handleShutdown = (signal: string) => {
+    console.log(`[DB] Received ${signal}, closing connection pools...`);
+    closeAllPools().finally(() => process.exit(0));
+  };
+
+  process.on('SIGINT', () => handleShutdown('SIGINT'));
+  process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+  process.on('beforeExit', () => {
+    closeAllPools().catch(() => { /* ignore */ });
+  });
 }

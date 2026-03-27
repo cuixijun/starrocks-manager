@@ -7,7 +7,8 @@ import { Pagination, CommandLogButton} from '@/components/ui';
 import Breadcrumb from '@/components/Breadcrumb';
 import Link from 'next/link';
 import {
-  Database, Search, Table2, RefreshCw, ChevronUp, ChevronDown, ChevronsUpDown, ArrowRight, Clock, Eye, Layers
+  Database, Search, Table2, RefreshCw, ChevronUp, ChevronDown, ChevronsUpDown, ArrowRight, Clock, Eye, Layers,
+  Plus, Trash2, AlertTriangle, X
 } from 'lucide-react';
 import { apiFetch } from '@/lib/fetch-patch';
 
@@ -40,6 +41,19 @@ export default function DatabasesPage() {
   const [lastRefreshed, setLastRefreshed] = useState<string | null>(null);
   const [fromCache, setFromCache] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Create dialog state
+  const [showCreate, setShowCreate] = useState(false);
+  const [newDbName, setNewDbName] = useState('');
+  const [creating, setCreating] = useState(false);
+
+  // Delete confirm dialog state
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteForce, setDeleteForce] = useState(false);
+  const [deleteConfirmName, setDeleteConfirmName] = useState('');
+
+  const SYSTEM_DBS = ['information_schema', '_statistics_', 'sys'];
 
   const fetchDatabases = useCallback(async (forceRefresh = false) => {
     if (!session) return;
@@ -80,6 +94,59 @@ export default function DatabasesPage() {
     fetchDatabases();
   }, [session, fetchDatabases]);
 
+  // ── Create database ──
+  async function handleCreate() {
+    if (!session || !newDbName.trim()) return;
+    setCreating(true);
+    setError('');
+    try {
+      const res = await apiFetch('/api/databases', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: session.sessionId, name: newDbName.trim() }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setShowCreate(false);
+        setNewDbName('');
+        fetchDatabases(true);
+      }
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  // ── Drop database ──
+  async function handleDelete() {
+    if (!session || !deleteTarget) return;
+    setDeleting(true);
+    setError('');
+    try {
+      const res = await apiFetch('/api/databases', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: session.sessionId, name: deleteTarget, force: deleteForce }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setDeleteTarget(null);
+        setDeleteForce(false);
+        setDeleteConfirmName('');
+        fetchDatabases(true);
+      }
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   function toggleSort(key: SortKey) {
     if (sortKey === key) {
       setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -92,6 +159,11 @@ export default function DatabasesPage() {
   const filtered = databases
     .filter(db => db.name.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => {
+      // System databases always at the bottom
+      const aSystem = SYSTEM_DBS.includes(a.name.toLowerCase());
+      const bSystem = SYSTEM_DBS.includes(b.name.toLowerCase());
+      if (aSystem !== bSystem) return aSystem ? 1 : -1;
+
       let cmp = 0;
       if (sortKey === 'name') cmp = a.name.localeCompare(b.name);
       if (sortKey === 'tableCount') cmp = a.tableCount - b.tableCount;
@@ -143,6 +215,9 @@ export default function DatabasesPage() {
             />
           </div>
           <div className="toolbar-actions">
+            <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
+              <Plus size={16} /> 新建数据库
+            </button>
             <CommandLogButton source="databases" title="数据库浏览" />
             <button className="btn btn-secondary" onClick={() => fetchDatabases(true)} disabled={loading || refreshing}>
               <RefreshCw size={16} style={{ animation: (loading || refreshing) ? 'spin 1s linear infinite' : 'none' }} />
@@ -190,12 +265,13 @@ export default function DatabasesPage() {
                       <Clock size={13} /> 缓存时间
                     </span>
                   </th>
-                  <th style={{ textAlign: 'center', width: '80px' }}>操作</th>
+                  <th style={{ textAlign: 'center', width: '100px' }}>操作</th>
                 </tr>
               </thead>
               <tbody>
                 {pg.paginatedData.map((db, idx) => {
                   const globalIdx = (pg.page - 1) * pg.pageSize + idx;
+                  const isSystemDb = SYSTEM_DBS.includes(db.name.toLowerCase());
                   return (
                   <tr key={db.name}>
                     {/* Index */}
@@ -266,16 +342,27 @@ export default function DatabasesPage() {
                       {db.cachedAt ?? '-'}
                     </td>
 
-                    {/* Action */}
+                    {/* Actions */}
                     <td style={{ textAlign: 'center' }}>
-                      <Link
-                        href={`/databases/${encodeURIComponent(db.name)}`}
-                        className="btn-action btn-action-view"
-                        title={`进入 ${db.name}`}
-                        style={{ display: 'inline-flex' }}
-                      >
-                        <ArrowRight size={14} />
-                      </Link>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        <Link
+                          href={`/databases/${encodeURIComponent(db.name)}`}
+                          className="btn-action btn-action-view"
+                          title={`进入 ${db.name}`}
+                          style={{ display: 'inline-flex' }}
+                        >
+                          <ArrowRight size={14} />
+                        </Link>
+                        <button
+                          className="btn-action btn-action-danger"
+                          title={isSystemDb ? `系统数据库不可删除` : `删除 ${db.name}`}
+                          onClick={() => setDeleteTarget(db.name)}
+                          disabled={isSystemDb}
+                          style={isSystemDb ? { opacity: 0.3, cursor: 'not-allowed' } : undefined}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                   );
@@ -297,6 +384,97 @@ export default function DatabasesPage() {
           </div>
         )}
       </div>
+
+      {/* ── Create Database Dialog ── */}
+      {showCreate && (
+        <div className="modal-overlay" onClick={() => { if (!creating) { setShowCreate(false); setNewDbName(''); } }}>
+          <div className="modal" style={{ maxWidth: '440px' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title"><Plus size={18} /> 新建数据库</h3>
+              <button className="btn-ghost btn-icon" onClick={() => { setShowCreate(false); setNewDbName(''); }}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="form-group">
+                <label className="form-label">数据库名称</label>
+                <input
+                  className="input"
+                  placeholder="例如: my_database"
+                  value={newDbName}
+                  onChange={e => setNewDbName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && newDbName.trim()) handleCreate(); }}
+                  autoFocus
+                />
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+                  只能包含字母、数字和下划线，不能以数字开头
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => { setShowCreate(false); setNewDbName(''); }} disabled={creating}>
+                取消
+              </button>
+              <button className="btn btn-primary" onClick={handleCreate} disabled={creating || !newDbName.trim()}>
+                {creating ? <><span className="spinner" /> 创建中...</> : <><Database size={16} /> 创建</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete Confirm Dialog ── */}
+      {deleteTarget && (
+        <div className="modal-overlay" onClick={() => { if (!deleting) { setDeleteTarget(null); setDeleteForce(false); setDeleteConfirmName(''); } }}>
+          <div className="modal" style={{ maxWidth: '440px' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title" style={{ color: 'var(--danger-500)' }}>
+                <AlertTriangle size={18} /> 删除数据库
+              </h3>
+              <button className="btn-ghost btn-icon" onClick={() => { setDeleteTarget(null); setDeleteForce(false); setDeleteConfirmName(''); }}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div style={{
+                padding: '12px 16px', borderRadius: 'var(--radius-md)',
+                backgroundColor: 'rgba(239, 68, 68, 0.06)',
+                border: '1px solid rgba(239, 68, 68, 0.15)',
+                marginBottom: '16px',
+              }}>
+                <div style={{ fontWeight: 600, marginBottom: '4px' }}>
+                  确定要删除数据库 <code style={{ color: 'var(--danger-500)' }}>{deleteTarget}</code> 吗？
+                </div>
+                <div style={{ fontSize: '0.82rem', color: 'var(--text-tertiary)' }}>
+                  此操作不可恢复，数据库中的所有表、视图和数据将被永久删除。
+                </div>
+              </div>
+              <div className="form-group" style={{ marginBottom: '12px' }}>
+                <label className="form-label">请输入数据库名称 <code style={{ color: 'var(--danger-500)' }}>{deleteTarget}</code> 以确认删除</label>
+                <input
+                  className="input"
+                  placeholder={deleteTarget}
+                  value={deleteConfirmName}
+                  onChange={e => setDeleteConfirmName(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', cursor: 'pointer' }}>
+                <input type="checkbox" checked={deleteForce} onChange={e => setDeleteForce(e.target.checked)} />
+                强制删除（FORCE，即使有未完成的事务）
+              </label>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => { setDeleteTarget(null); setDeleteForce(false); setDeleteConfirmName(''); }} disabled={deleting}>
+                取消
+              </button>
+              <button className="btn btn-danger" onClick={handleDelete} disabled={deleting || deleteConfirmName !== deleteTarget}>
+                {deleting ? <><span className="spinner" /> 删除中...</> : <><Trash2 size={16} /> 确认删除</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

@@ -28,7 +28,7 @@ interface AuthState {
   activeCluster: ClusterBrief | null;
   clusterStatus: ClusterStatus;
   loading: boolean;
-  login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  login: (username: string, password: string, captchaToken?: string, captchaAnswer?: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   switchCluster: (clusterId: number) => Promise<void>;
   refreshAuth: () => Promise<void>;
@@ -91,12 +91,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refreshAuth();
   }, [refreshAuth]);
 
-  const login = useCallback(async (username: string, password: string) => {
+  const login = useCallback(async (username: string, password: string, captchaToken?: string, captchaAnswer?: string) => {
     try {
       const res = await apiFetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'login', username, password }),
+        body: JSON.stringify({ action: 'login', username, password, captchaToken, captchaAnswer }),
       });
       const data = await res.json();
       if (data.success) {

@@ -53,7 +53,7 @@ export function validateVarName(name: string): string {
  *
  * Allowed: alphanumeric, underscores, hyphens, dots, @, %, spaces
  */
-const SAFE_IDENTIFIER_PATTERN = /^[a-zA-Z0-9_\-. @%*(),:\/]+$/;
+const SAFE_IDENTIFIER_PATTERN = /^[a-zA-Z0-9_\-. @%*(),:\/`']+$/;
 
 export function validateIdentifier(value: string, fieldName: string): string {
   if (!value || value.length === 0) {

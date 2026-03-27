@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getLocalDb } from '@/lib/local-db';
 import { verifyPassword, hashPassword, createSession, validateSession, destroySession, getAuthFromRequest, getUserClusters } from '@/lib/auth';
+import { validateCaptcha } from '@/app/api/captcha/route';
 import type { SysUser } from '@/lib/auth';
 
 interface SysUserRow extends SysUser {
@@ -20,12 +21,20 @@ function validatePasswordComplexity(pwd: string): string | null {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { action, username, password } = body;
+    const { action, username, password, captchaToken, captchaAnswer } = body;
 
     // --- Login ---
     if (!action || action === 'login') {
       if (!username || !password) {
         return NextResponse.json({ error: '请输入用户名和密码' }, { status: 400 });
+      }
+
+      // Validate captcha
+      if (!captchaToken || captchaAnswer === undefined || captchaAnswer === '') {
+        return NextResponse.json({ error: '请输入验证码' }, { status: 400 });
+      }
+      if (!validateCaptcha(captchaToken, Number(captchaAnswer))) {
+        return NextResponse.json({ error: '验证码错误或已过期，请刷新重试' }, { status: 400 });
       }
 
       const db = getLocalDb();

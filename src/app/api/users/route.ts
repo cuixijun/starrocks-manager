@@ -168,3 +168,40 @@ export async function DELETE(request: NextRequest) {
     );
   }
 }
+
+// ── Change password ──
+export async function PATCH(request: NextRequest) {
+  try {
+    const { sessionId, username, host, password } = await request.json();
+    if (!sessionId || !username || !password) {
+      return NextResponse.json({ error: 'sessionId, username, password required' }, { status: 400 });
+    }
+    // Server-side password complexity check
+    if (password.length < 8) {
+      return NextResponse.json({ error: '密码长度不能少于8位' }, { status: 400 });
+    }
+    if (!/[A-Z]/.test(password)) {
+      return NextResponse.json({ error: '密码必须包含大写字母' }, { status: 400 });
+    }
+    if (!/[a-z]/.test(password)) {
+      return NextResponse.json({ error: '密码必须包含小写字母' }, { status: 400 });
+    }
+    if (!/[0-9]/.test(password)) {
+      return NextResponse.json({ error: '密码必须包含数字' }, { status: 400 });
+    }
+    if (!/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(password)) {
+      return NextResponse.json({ error: '密码必须包含特殊字符' }, { status: 400 });
+    }
+
+    const safeUser = escapeSqlString(username);
+    const safeHost = escapeSqlString(host || '%');
+    const safePwd = escapeSqlString(password);
+    await executeQuery(sessionId, `ALTER USER '${safeUser}'@'${safeHost}' IDENTIFIED BY '${safePwd}'`, undefined, 'users');
+    return NextResponse.json({ success: true, message: '密码修改成功' });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      { status: 500 }
+    );
+  }
+}

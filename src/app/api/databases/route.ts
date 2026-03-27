@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/db';
+import { escapeBacktickId } from '@/lib/sql-sanitize';
 import { upsertDbCache, getDbCache } from '@/lib/local-db';
 
 export async function GET(request: NextRequest) {
@@ -113,3 +114,53 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// ── CREATE DATABASE ──
+export async function POST(request: NextRequest) {
+  try {
+    const { sessionId, name } = await request.json();
+    if (!sessionId || !name) {
+      return NextResponse.json({ error: 'sessionId and name are required' }, { status: 400 });
+    }
+    // Validate database name: alphanumeric + underscore only
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+      return NextResponse.json({ error: '数据库名只能包含字母、数字和下划线，且不能以数字开头' }, { status: 400 });
+    }
+    if (name.length > 64) {
+      return NextResponse.json({ error: '数据库名不能超过64个字符' }, { status: 400 });
+    }
+
+    await executeQuery(sessionId, `CREATE DATABASE IF NOT EXISTS \`${escapeBacktickId(name)}\``, undefined, 'databases');
+    return NextResponse.json({ success: true, message: `数据库 ${name} 创建成功` });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      { status: 500 }
+    );
+  }
+}
+
+// ── DROP DATABASE ──
+export async function DELETE(request: NextRequest) {
+  try {
+    const { sessionId, name, force } = await request.json();
+    if (!sessionId || !name) {
+      return NextResponse.json({ error: 'sessionId and name are required' }, { status: 400 });
+    }
+    // Protect system databases
+    const systemDbs = ['information_schema', '_statistics_', 'sys'];
+    if (systemDbs.includes(name.toLowerCase())) {
+      return NextResponse.json({ error: `不允许删除系统数据库 ${name}` }, { status: 400 });
+    }
+
+    const sql = force
+      ? `DROP DATABASE \`${escapeBacktickId(name)}\` FORCE`
+      : `DROP DATABASE IF EXISTS \`${escapeBacktickId(name)}\``;
+    await executeQuery(sessionId, sql, undefined, 'databases');
+    return NextResponse.json({ success: true, message: `数据库 ${name} 已删除` });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      { status: 500 }
+    );
+  }
+}

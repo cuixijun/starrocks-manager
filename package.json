@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev & sleep 2 && echo '' && echo '  → 访问地址: http://localhost:3000/starrocks-manager' && echo '' && wait",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

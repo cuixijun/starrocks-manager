@@ -18,6 +18,7 @@
 -- 一、SYSTEM 级权限
 -- ============================================================
 -- OPERATE:      SHOW PROCESSLIST, KILL <query_id>, SET [GLOBAL] variables
+-- NODE:          ALTER SYSTEM ADD/DROP/DECOMMISSION 节点 → 不可直接授权，需 cluster_admin 角色
 -- CREATE RESOURCE GROUP: 创建资源组
 -- CREATE EXTERNAL CATALOG: 创建外表 Catalog
 GRANT OPERATE ON SYSTEM TO USER 'sr_manager'@'%';
@@ -46,8 +47,10 @@ GRANT CREATE DATABASE ON CATALOG default_catalog TO USER 'sr_manager'@'%';
 -- 四、DATABASE 级权限
 -- ============================================================
 -- SHOW DATABASES: 需要 DATABASE 上的任意权限
+-- DROP DATABASE: 需要 DATABASE 上的 DROP
+-- ALTER DATABASE: 需要 DATABASE 上的 ALTER
 -- CREATE MATERIALIZED VIEW: 需要 DATABASE 上的 CREATE MATERIALIZED VIEW
-GRANT CREATE TABLE, CREATE VIEW, CREATE FUNCTION, CREATE MATERIALIZED VIEW
+GRANT ALTER, DROP, CREATE TABLE, CREATE VIEW, CREATE FUNCTION, CREATE MATERIALIZED VIEW
   ON ALL DATABASES TO USER 'sr_manager'@'%';
 
 -- ============================================================
@@ -82,13 +85,17 @@ GRANT SELECT, ALTER, REFRESH, DROP
 GRANT ALTER, DROP ON ALL RESOURCE GROUPS TO USER 'sr_manager'@'%';
 
 -- ============================================================
--- 九、用户与角色管理 (DCL)
+-- 九、用户与角色管理 (DCL) + 节点管理
 -- ============================================================
 -- CREATE USER / DROP USER: 需要 SYSTEM 级的 user_admin 内置角色
 -- CREATE ROLE / DROP ROLE: 需要 SYSTEM 级的 user_admin 内置角色
 -- GRANT / REVOKE: 需要 user_admin 内置角色
 -- SHOW USERS / SHOW ROLES / SHOW GRANTS / SHOW ALL GRANTS: 需要 user_admin
+-- ALTER SYSTEM ADD/DROP/DECOMMISSION 节点: 需要 cluster_admin 内置角色 (NODE 不可直接授权)
 GRANT user_admin TO USER 'sr_manager'@'%';
+GRANT cluster_admin TO USER 'sr_manager'@'%';
+-- ★ 激活角色 (否则角色权限不会自动生效)
+SET DEFAULT ROLE user_admin, cluster_admin TO 'sr_manager'@'%';
 
 -- ============================================================
 -- 十、ROUTINE LOAD 管理
