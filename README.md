@@ -117,14 +117,14 @@ ADMIN_PASSWORD=Admin@2024
 4. 推送到镜像仓库
 5. 清理临时生成的 `config.yaml`
 
-镜像地址: `***REGISTRY_REDACTED***/starrocks-manager:<YYYYMMDD>`
+镜像地址: `<REGISTRY>/<NAMESPACE>/starrocks-manager:<YYYYMMDD>`
 
 #### 3. 本地测试
 
 ```bash
 docker run -d --name starrocks-manager \
   -p 3000:3000 \
-  ***REGISTRY_REDACTED***/starrocks-manager:latest
+  <REGISTRY>/<NAMESPACE>/starrocks-manager:latest
 ```
 
 访问 http://localhost:3000/starrocks-manager
@@ -151,7 +151,7 @@ spec:
     spec:
       containers:
       - name: starrocks-manager
-        image: ***REGISTRY_REDACTED***/starrocks-manager:latest
+        image: <REGISTRY>/<NAMESPACE>/starrocks-manager:latest
         ports:
         - containerPort: 3000
         volumeMounts:
@@ -214,7 +214,7 @@ EOF
 
 # 更新 K8s 部署
 kubectl set image deployment/starrocks-manager \
-  starrocks-manager=***REGISTRY_REDACTED***/starrocks-manager:$(date +%Y%m%d)
+  starrocks-manager=<REGISTRY>/<NAMESPACE>/starrocks-manager:$(date +%Y%m%d)
 ```
 
 ---
