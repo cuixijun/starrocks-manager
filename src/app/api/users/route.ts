@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/db';
 import { getBlobCache, setBlobCache } from '@/lib/local-db';
 import { escapeSqlString } from '@/lib/sql-sanitize';
+import { requirePermission, PERMISSIONS } from '@/lib/permissions';
+import { AuthError } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
+    requirePermission(request, PERMISSIONS.USERS);
     const sessionId = request.nextUrl.searchParams.get('sessionId');
     const refresh = request.nextUrl.searchParams.get('refresh') === 'true';
 
@@ -124,6 +127,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    requirePermission(request, PERMISSIONS.USERS);
     const { sessionId, username, host, password, roles } = await request.json();
     if (!sessionId || !username) {
       return NextResponse.json({ error: 'Session ID and username required' }, { status: 400 });
@@ -152,6 +156,7 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    requirePermission(request, PERMISSIONS.USERS);
     const { sessionId, username, host } = await request.json();
     if (!sessionId || !username) {
       return NextResponse.json({ error: 'Session ID and username required' }, { status: 400 });
@@ -172,6 +177,7 @@ export async function DELETE(request: NextRequest) {
 // ── Change password ──
 export async function PATCH(request: NextRequest) {
   try {
+    requirePermission(request, PERMISSIONS.USERS);
     const { sessionId, username, host, password } = await request.json();
     if (!sessionId || !username || !password) {
       return NextResponse.json({ error: 'sessionId, username, password required' }, { status: 400 });

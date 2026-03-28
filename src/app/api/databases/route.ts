@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/db';
 import { escapeBacktickId } from '@/lib/sql-sanitize';
 import { upsertDbCache, getDbCache, recordAuditLog } from '@/lib/local-db';
-import { getAuthFromRequest, validateSession } from '@/lib/auth';
+import { getAuthFromRequest, validateSession, AuthError } from '@/lib/auth';
+import { requirePermission, PERMISSIONS } from '@/lib/permissions';
 
 export async function GET(request: NextRequest) {
   try {
+    requirePermission(request, PERMISSIONS.DATABASES);
     const sessionId = request.nextUrl.searchParams.get('sessionId');
     const refresh = request.nextUrl.searchParams.get('refresh') === 'true';
 
@@ -118,6 +120,7 @@ export async function GET(request: NextRequest) {
 // ── CREATE DATABASE ──
 export async function POST(request: NextRequest) {
   try {
+    requirePermission(request, PERMISSIONS.DATABASES);
     const { sessionId, name } = await request.json();
     if (!sessionId || !name) {
       return NextResponse.json({ error: 'sessionId and name are required' }, { status: 400 });
@@ -154,6 +157,7 @@ export async function POST(request: NextRequest) {
 // ── DROP DATABASE ──
 export async function DELETE(request: NextRequest) {
   try {
+    requirePermission(request, PERMISSIONS.DATABASES);
     const { sessionId, name, force } = await request.json();
     if (!sessionId || !name) {
       return NextResponse.json({ error: 'sessionId and name are required' }, { status: 400 });

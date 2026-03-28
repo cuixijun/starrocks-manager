@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/db';
 import { getBlobCache, setBlobCache } from '@/lib/local-db';
 import { escapeBacktickId } from '@/lib/sql-sanitize';
+import { requirePermission, PERMISSIONS } from '@/lib/permissions';
+import { AuthError } from '@/lib/auth';
 
 /**
  * Map information_schema.routine_load_jobs column names (UPPER_SNAKE_CASE)
@@ -45,6 +47,7 @@ function mapColumns(row: Record<string, unknown>): Record<string, unknown> {
 
 export async function GET(request: NextRequest) {
   try {
+    requirePermission(request, PERMISSIONS.ROUTINE_LOAD);
     const sessionId = request.nextUrl.searchParams.get('sessionId');
     const refresh = request.nextUrl.searchParams.get('refresh') === 'true';
 
@@ -91,6 +94,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    requirePermission(request, PERMISSIONS.ROUTINE_LOAD);
     const { sessionId, action, dbName, jobName } = await request.json();
     if (!sessionId || !jobName) {
       return NextResponse.json({ error: 'Session ID and job name required' }, { status: 400 });

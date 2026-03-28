@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/db';
 import { getBlobCache, setBlobCache } from '@/lib/local-db';
 import { escapeBacktickId, escapeSqlString } from '@/lib/sql-sanitize';
+import { requirePermission, PERMISSIONS } from '@/lib/permissions';
+import { AuthError } from '@/lib/auth';
 
 /**
  * Map information_schema.loads column names (UPPER_SNAKE_CASE)
@@ -40,6 +42,7 @@ function mapColumns(row: Record<string, unknown>): Record<string, unknown> {
 
 export async function GET(request: NextRequest) {
   try {
+    requirePermission(request, PERMISSIONS.BROKER_LOAD);
     const sessionId = request.nextUrl.searchParams.get('sessionId');
     const refresh = request.nextUrl.searchParams.get('refresh') === 'true';
 
@@ -85,6 +88,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    requirePermission(request, PERMISSIONS.BROKER_LOAD);
     const { sessionId, action, dbName, label } = await request.json();
     if (!sessionId) {
       return NextResponse.json({ error: 'Session ID required' }, { status: 400 });

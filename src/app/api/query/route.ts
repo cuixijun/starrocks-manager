@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/db';
 import { recordAuditLog } from '@/lib/local-db';
-import { getAuthFromRequest, validateSession } from '@/lib/auth';
+import { getAuthFromRequest, validateSession, AuthError } from '@/lib/auth';
+import { requirePermission, PERMISSIONS } from '@/lib/permissions';
 
 // DDL/DML patterns that should be audited
 const AUDIT_SQL_PATTERN = /^\s*(CREATE|DROP|ALTER|INSERT|DELETE|UPDATE|TRUNCATE|GRANT|REVOKE)/i;
 
 export async function POST(request: NextRequest) {
   try {
+    requirePermission(request, PERMISSIONS.QUERY);
     const { sessionId, sql } = await request.json();
     if (!sessionId || !sql) {
       return NextResponse.json({ error: 'Session ID and SQL required' }, { status: 400 });

@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/db';
 import { getBlobCache, setBlobCache } from '@/lib/local-db';
+import { requirePermission, PERMISSIONS } from '@/lib/permissions';
+import { AuthError } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
+    requirePermission(request, PERMISSIONS.NODES);
     const sessionId = request.nextUrl.searchParams.get('sessionId');
     const refresh = request.nextUrl.searchParams.get('refresh') === 'true';
 
@@ -54,6 +57,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    requirePermission(request, PERMISSIONS.NODES);
     const { sessionId, action, nodeType, host, port, brokerName } = await request.json();
     if (!sessionId || !action || !nodeType || !host || !port) {
       return NextResponse.json({ error: 'sessionId, action, nodeType, host, port required' }, { status: 400 });

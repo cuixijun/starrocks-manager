@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/db';
 import { validateIdentifier, validatePrivilege, validateObjectType, escapeSqlString } from '@/lib/sql-sanitize';
 import { recordAuditLog } from '@/lib/local-db';
-import { getAuthFromRequest, validateSession } from '@/lib/auth';
+import { getAuthFromRequest, validateSession, AuthError } from '@/lib/auth';
+import { requirePermission, PERMISSIONS } from '@/lib/permissions';
 
 /**
  * POST /api/grants — Execute GRANT / REVOKE statements
@@ -19,6 +20,7 @@ import { getAuthFromRequest, validateSession } from '@/lib/auth';
  */
 export async function POST(request: NextRequest) {
   try {
+    requirePermission(request, PERMISSIONS.PRIVILEGES);
     const body = await request.json();
     const { sessionId, action, grantee, privilege, objectType, objectName, roleName } = body;
 

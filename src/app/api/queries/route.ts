@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/db';
 import { validateNumeric } from '@/lib/sql-sanitize';
+import { requirePermission, PERMISSIONS } from '@/lib/permissions';
+import { AuthError } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
+    requirePermission(request, PERMISSIONS.DASHBOARD);
     const sessionId = request.nextUrl.searchParams.get('sessionId');
     if (!sessionId) {
       return NextResponse.json({ error: 'Session ID required' }, { status: 400 });
@@ -21,6 +24,7 @@ export async function GET(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    requirePermission(request, PERMISSIONS.DASHBOARD);
     const { sessionId, queryId } = await request.json();
     if (!sessionId || !queryId) {
       return NextResponse.json({ error: 'Session ID and query ID required' }, { status: 400 });

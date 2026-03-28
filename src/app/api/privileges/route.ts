@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/db';
 import { escapeSqlString, validatePrivilege, validateObjectType, validateIdentifier } from '@/lib/sql-sanitize';
+import { requirePermission, PERMISSIONS } from '@/lib/permissions';
+import { AuthError } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
+    requirePermission(request, PERMISSIONS.PRIVILEGES);
     const sessionId = request.nextUrl.searchParams.get('sessionId');
     const user = request.nextUrl.searchParams.get('user');
     if (!sessionId) {

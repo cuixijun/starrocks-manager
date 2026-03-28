@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/db';
 import { getBlobCache, setBlobCache } from '@/lib/local-db';
 import { escapeBacktickId, validateNumeric } from '@/lib/sql-sanitize';
+import { requirePermission, PERMISSIONS } from '@/lib/permissions';
+import { AuthError } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
+    requirePermission(request, PERMISSIONS.RESOURCE_GROUPS);
     const sessionId = request.nextUrl.searchParams.get('sessionId');
     const refresh = request.nextUrl.searchParams.get('refresh') === 'true';
 
@@ -65,6 +68,7 @@ export async function GET(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
+    requirePermission(request, PERMISSIONS.RESOURCE_GROUPS);
     const body = await request.json();
     const { sessionId, name, action: editAction } = body;
     if (!sessionId || !name) {
@@ -129,6 +133,7 @@ export async function PUT(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    requirePermission(request, PERMISSIONS.RESOURCE_GROUPS);
     const { sessionId, action, name, cpuWeight, exclusiveCpuCores, memLimit, concurrencyLimit,
             bigQueryCpuSecondLimit, bigQueryScanRowsLimit, bigQueryMemLimit } = await request.json();
     if (!sessionId || !name) {
@@ -160,6 +165,7 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    requirePermission(request, PERMISSIONS.RESOURCE_GROUPS);
     const { sessionId, name } = await request.json();
     if (!sessionId || !name) {
       return NextResponse.json({ error: 'Session ID and name required' }, { status: 400 });

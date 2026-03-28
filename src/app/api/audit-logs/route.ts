@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAuth, AuthError } from '@/lib/auth';
+import { AuthError } from '@/lib/auth';
+import { requirePermission, PERMISSIONS } from '@/lib/permissions';
 import { queryAuditLogs } from '@/lib/local-db';
 
 // GET /api/audit-logs — query audit logs (all authenticated users)
 export async function GET(request: NextRequest) {
   try {
-    requireAuth(request);
+    requirePermission(request, PERMISSIONS.AUDIT);
 
     const params = request.nextUrl.searchParams;
     const page = parseInt(params.get('page') || '1', 10);

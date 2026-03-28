@@ -56,6 +56,40 @@
 
 **测试结论：** 所有功能测试通过，模块可投入使用。
 
+### 4. API 路由权限中间件集成
+
+对所有 19 个数据面 API 路由文件注入 `requirePermission` 中间件，实现服务端权限校验。
+
+**集成策略：**
+- 每个 API handler 函数入口添加 `requirePermission(request, PERMISSIONS.X)` 调用
+- 未通过权限检查的请求返回 `403 权限不足`
+- `admin` 角色始终通过（代码级保证）
+- 仅 admin 操作的路由（`clusters` 写操作、`sys-users`、`audit-config` PUT）保留 `requireRole('admin')`
+
+**覆盖路由清单：**
+
+| API 路由 | 权限 Key |
+|----------|---------|
+| `/api/queries` | `dashboard` |
+| `/api/databases` | `databases` |
+| `/api/catalogs` | `catalogs` |
+| `/api/materialized-views` | `materialized_views` |
+| `/api/query` | `query` |
+| `/api/routine-load` | `routine_load` |
+| `/api/broker-load` | `broker_load` |
+| `/api/pipes` | `pipes` |
+| `/api/tasks` | `tasks` |
+| `/api/users` | `users` |
+| `/api/roles` | `roles` |
+| `/api/privileges` | `privileges` |
+| `/api/grants` | `privileges` |
+| `/api/nodes` | `nodes` |
+| `/api/resource-groups` | `resource_groups` |
+| `/api/functions` | `functions` |
+| `/api/variables` | `variables` |
+| `/api/audit-logs` | `audit` |
+| `/api/audit-config` (GET) | `audit` |
+
 ## 变更文件清单
 
 | 文件 | 类型 | 说明 |
@@ -68,3 +102,23 @@
 | `src/lib/local-db.ts` | 修改 | 新增 `sys_role_permissions` 表 |
 | `src/components/Sidebar.tsx` | 修改 | `minRole` → `permission` 动态权限检查 |
 | `src/app/layout.tsx` | 修改 | 添加 `PermissionsProvider` |
+| `src/app/api/databases/route.ts` | 修改 | 注入 `requirePermission(DATABASES)` |
+| `src/app/api/catalogs/route.ts` | 修改 | 注入 `requirePermission(CATALOGS)` |
+| `src/app/api/materialized-views/route.ts` | 修改 | 注入 `requirePermission(MV)` |
+| `src/app/api/query/route.ts` | 修改 | 注入 `requirePermission(QUERY)` |
+| `src/app/api/routine-load/route.ts` | 修改 | 注入 `requirePermission(ROUTINE_LOAD)` |
+| `src/app/api/broker-load/route.ts` | 修改 | 注入 `requirePermission(BROKER_LOAD)` |
+| `src/app/api/pipes/route.ts` | 修改 | 注入 `requirePermission(PIPES)` |
+| `src/app/api/tasks/route.ts` | 修改 | 注入 `requirePermission(TASKS)` |
+| `src/app/api/users/route.ts` | 修改 | 注入 `requirePermission(USERS)` |
+| `src/app/api/roles/route.ts` | 修改 | 注入 `requirePermission(ROLES)` |
+| `src/app/api/privileges/route.ts` | 修改 | 注入 `requirePermission(PRIVILEGES)` |
+| `src/app/api/grants/route.ts` | 修改 | 注入 `requirePermission(PRIVILEGES)` |
+| `src/app/api/nodes/route.ts` | 修改 | 注入 `requirePermission(NODES)` |
+| `src/app/api/resource-groups/route.ts` | 修改 | 注入 `requirePermission(RESOURCE_GROUPS)` |
+| `src/app/api/functions/route.ts` | 修改 | 注入 `requirePermission(FUNCTIONS)` |
+| `src/app/api/variables/route.ts` | 修改 | 注入 `requirePermission(VARIABLES)` |
+| `src/app/api/queries/route.ts` | 修改 | 注入 `requirePermission(DASHBOARD)` |
+| `src/app/api/audit-logs/route.ts` | 修改 | 注入 `requirePermission(AUDIT)` |
+| `src/app/api/audit-config/route.ts` | 修改 | GET 注入 `requirePermission(AUDIT)` |
+

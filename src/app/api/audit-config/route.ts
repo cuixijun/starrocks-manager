@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAuth, requireRole, AuthError } from '@/lib/auth';
+import { requireRole, AuthError } from '@/lib/auth';
+import { requirePermission, PERMISSIONS } from '@/lib/permissions';
 import { getAuditLevel, setAuditLevel, recordAuditLog } from '@/lib/local-db';
 import type { AuditLevel } from '@/lib/local-db';
 
@@ -15,7 +16,7 @@ const VALID_LEVELS = new Set<string>(['off', 'basic', 'standard', 'full']);
 // GET /api/audit-config — get current audit config (all authenticated users)
 export async function GET(request: NextRequest) {
   try {
-    requireAuth(request);
+    requirePermission(request, PERMISSIONS.AUDIT);
 
     const level = getAuditLevel();
     return NextResponse.json({ level, levelOptions: LEVEL_OPTIONS });

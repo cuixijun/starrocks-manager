@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/db';
 import { getBlobCache, setBlobCache } from '@/lib/local-db';
 import { escapeBacktickId, escapeSqlString } from '@/lib/sql-sanitize';
+import { requirePermission, PERMISSIONS } from '@/lib/permissions';
+import { AuthError } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
+    requirePermission(request, PERMISSIONS.TASKS);
     const sessionId = request.nextUrl.searchParams.get('sessionId');
     const type = request.nextUrl.searchParams.get('type') || 'tasks';
     const taskName = request.nextUrl.searchParams.get('taskName');
@@ -64,6 +67,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    requirePermission(request, PERMISSIONS.TASKS);
     const { sessionId, action, taskName } = await request.json();
     if (!sessionId) {
       return NextResponse.json({ error: 'Session ID required' }, { status: 400 });

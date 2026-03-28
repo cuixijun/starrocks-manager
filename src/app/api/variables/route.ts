@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/db';
 import { getBlobCache, setBlobCache } from '@/lib/local-db';
 import { validateVarName, escapeSqlString } from '@/lib/sql-sanitize';
+import { requirePermission, PERMISSIONS } from '@/lib/permissions';
+import { AuthError } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
+    requirePermission(request, PERMISSIONS.VARIABLES);
     const sessionId = request.nextUrl.searchParams.get('sessionId');
     const refresh = request.nextUrl.searchParams.get('refresh') === 'true';
     const scope = request.nextUrl.searchParams.get('scope') || 'session'; // session | global
@@ -42,6 +45,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    requirePermission(request, PERMISSIONS.VARIABLES);
     const { sessionId, name, value, global } = await request.json();
     if (!sessionId || !name) {
       return NextResponse.json({ error: 'Session ID and variable name required' }, { status: 400 });

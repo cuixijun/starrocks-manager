@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/db';
 import { getBlobCache, setBlobCache } from '@/lib/local-db';
 import { escapeBacktickId } from '@/lib/sql-sanitize';
+import { requirePermission, PERMISSIONS } from '@/lib/permissions';
+import { AuthError } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
+    requirePermission(request, PERMISSIONS.CATALOGS);
     const sessionId = request.nextUrl.searchParams.get('sessionId');
     const refresh = request.nextUrl.searchParams.get('refresh') === 'true';
 
@@ -39,6 +42,7 @@ export async function GET(request: NextRequest) {
 // POST: Create a new catalog by executing raw SQL
 export async function POST(request: NextRequest) {
   try {
+    requirePermission(request, PERMISSIONS.CATALOGS);
     const { sessionId, sql } = await request.json();
     if (!sessionId || !sql) {
       return NextResponse.json({ error: 'sessionId and sql are required' }, { status: 400 });
@@ -70,6 +74,7 @@ export async function POST(request: NextRequest) {
 // DELETE: Drop a catalog
 export async function DELETE(request: NextRequest) {
   try {
+    requirePermission(request, PERMISSIONS.CATALOGS);
     const { sessionId, catalogName } = await request.json();
     if (!sessionId || !catalogName) {
       return NextResponse.json({ error: 'sessionId and catalogName are required' }, { status: 400 });
