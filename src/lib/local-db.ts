@@ -494,8 +494,14 @@ export async function queryAuditLogs(query: AuditLogQuery = {}): Promise<{ logs:
   if (query.category) { conditions.push('category = ?'); values.push(query.category); }
   if (query.username) { conditions.push('username LIKE ?'); values.push(`%${query.username}%`); }
   if (query.action) { conditions.push('action LIKE ?'); values.push(`%${query.action}%`); }
-  if (query.startDate) { conditions.push('created_at >= ?'); values.push(query.startDate); }
-  if (query.endDate) { conditions.push('created_at <= ?'); values.push(query.endDate); }
+  if (query.startDate) {
+    conditions.push('created_at >= ?');
+    values.push(query.startDate.replace('T', ' ').replace('Z', '').replace(/\.\d+$/, ''));
+  }
+  if (query.endDate) {
+    conditions.push('created_at <= ?');
+    values.push(query.endDate.replace('T', ' ').replace('Z', '').replace(/\.\d+$/, ''));
+  }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
