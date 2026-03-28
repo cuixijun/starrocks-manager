@@ -390,15 +390,16 @@ export async function appendCommandLog(
 
 export async function getCommandLogs(sessionId: string, source?: string, limit = 100): Promise<CommandLogEntry[]> {
   const db = await getLocalDb();
+  const safeLimit = Math.max(1, Math.min(1000, Number(limit) || 100));
   if (source) {
     return db.all<CommandLogEntry>(
-      'SELECT * FROM command_log WHERE session_id = ? AND source = ? ORDER BY id DESC LIMIT ?',
-      [sessionId, source, limit],
+      `SELECT * FROM command_log WHERE session_id = ? AND source = ? ORDER BY id DESC LIMIT ${safeLimit}`,
+      [sessionId, source],
     );
   }
   return db.all<CommandLogEntry>(
-    'SELECT * FROM command_log WHERE session_id = ? ORDER BY id DESC LIMIT ?',
-    [sessionId, limit],
+    `SELECT * FROM command_log WHERE session_id = ? ORDER BY id DESC LIMIT ${safeLimit}`,
+    [sessionId],
   );
 }
 
@@ -501,8 +502,8 @@ export async function queryAuditLogs(query: AuditLogQuery = {}): Promise<{ logs:
   const countRow = await db.get<{ cnt: number }>(`SELECT COUNT(*) as cnt FROM audit_logs ${where}`, values);
   const total = countRow?.cnt || 0;
   const logs = await db.all<AuditLogEntry>(
-    `SELECT * FROM audit_logs ${where} ORDER BY id DESC LIMIT ? OFFSET ?`,
-    [...values, pageSize, offset],
+    `SELECT * FROM audit_logs ${where} ORDER BY id DESC LIMIT ${pageSize} OFFSET ${offset}`,
+    [...values],
   );
 
   return { logs, total };
