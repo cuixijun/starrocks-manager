@@ -171,3 +171,26 @@ CREATE TABLE IF NOT EXISTS sys_sessions (
   FOREIGN KEY (user_id)    REFERENCES sys_users(id) ON DELETE CASCADE,
   FOREIGN KEY (cluster_id) REFERENCES clusters(id)  ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统会话表';
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id         INTEGER PRIMARY KEY AUTO_INCREMENT COMMENT '日志ID',
+  user_id    INTEGER COMMENT '操作用户ID',
+  username   VARCHAR(255) NOT NULL COMMENT '操作用户名',
+  action     VARCHAR(255) NOT NULL COMMENT '操作类型(如 auth.login, cluster.create)',
+  category   VARCHAR(100) NOT NULL DEFAULT 'system' COMMENT '分类(auth/cluster/user/system)',
+  level      VARCHAR(50) NOT NULL DEFAULT 'basic' COMMENT '审计级别(basic/standard/full)',
+  target     VARCHAR(500) DEFAULT '' COMMENT '操作目标',
+  detail     TEXT COMMENT '操作详情(JSON)',
+  ip_address VARCHAR(100) DEFAULT '' COMMENT '客户端IP',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间',
+  INDEX idx_audit_logs_created (created_at),
+  INDEX idx_audit_logs_category (category),
+  INDEX idx_audit_logs_user (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='操作审计日志';
+
+CREATE TABLE IF NOT EXISTS sys_role_permissions (
+  role       VARCHAR(50) NOT NULL COMMENT '角色名称(editor/viewer)',
+  permission VARCHAR(100) NOT NULL COMMENT '权限标识(如 dashboard, databases)',
+  granted    TINYINT NOT NULL DEFAULT 1 COMMENT '是否授权(1=是,0=否)',
+  PRIMARY KEY (role, permission)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='角色权限配置表';
