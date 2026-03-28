@@ -401,7 +401,7 @@ export default function AuditPage() {
     <>
       <PageHeader
         title="审计日志"
-        breadcrumb={[{ label: '平台设置' }, { label: '审计日志' }]}
+        breadcrumb={[{ label: '系统设置' }, { label: '审计日志' }]}
         description={<>系统操作审计记录 · 共 {total.toLocaleString()} 条</>}
       />
       <div className="page-body">

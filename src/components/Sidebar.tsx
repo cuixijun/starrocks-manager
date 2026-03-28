@@ -4,7 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
-import type { SysRole } from '@/hooks/useAuth';
+import { usePermissions } from '@/hooks/usePermissions';
 import {
   LayoutDashboard,
   Database,
@@ -27,6 +27,7 @@ import {
   UserCog,
   Network,
   ScrollText,
+  KeyRound,
 } from 'lucide-react';
 
 interface NavItem {
@@ -34,61 +35,63 @@ interface NavItem {
   section?: boolean;
   href?: string;
   icon?: React.ElementType;
-  minRole?: SysRole;
+  permission?: string;        // permission key from permissions.ts
+  adminOnly?: boolean;        // items with no permission key, admin-only (e.g. design-system)
 }
 
 const navItems: NavItem[] = [
   { label: '监控', section: true },
-  { href: '/dashboard', icon: LayoutDashboard, label: '仪表盘' },
+  { href: '/dashboard', icon: LayoutDashboard, label: '仪表盘', permission: 'dashboard' },
   { label: '数据管理', section: true },
-  { href: '/databases', icon: Database, label: '数据库浏览' },
-  { href: '/catalogs', icon: FolderTree, label: 'Catalog 管理' },
-  { href: '/materialized-views', icon: Box, label: '物化视图' },
-  { href: '/query', icon: Terminal, label: 'SQL 查询', minRole: 'editor' },
+  { href: '/databases', icon: Database, label: '数据库浏览', permission: 'databases' },
+  { href: '/catalogs', icon: FolderTree, label: 'Catalog 管理', permission: 'catalogs' },
+  { href: '/materialized-views', icon: Box, label: '物化视图', permission: 'materialized_views' },
+  { href: '/query', icon: Terminal, label: 'SQL 查询', permission: 'query' },
   { label: '任务管理', section: true },
-  { href: '/routine-load', icon: Radio, label: 'Routine Load' },
-  { href: '/broker-load', icon: HardDrive, label: 'Broker Load' },
-  { href: '/pipes', icon: GitBranch, label: 'Pipes' },
-  { href: '/task-manager', icon: CalendarClock, label: 'Submit Task' },
-  { href: '/tasks', icon: ListChecks, label: 'Task Runs' },
-  { label: '权限管理', section: true, minRole: 'admin' },
-  { href: '/users', icon: Users, label: '用户管理', minRole: 'admin' },
-  { href: '/roles', icon: ShieldCheck, label: '角色管理', minRole: 'admin' },
-  { href: '/privileges', icon: Shield, label: '权限管理', minRole: 'admin' },
+  { href: '/routine-load', icon: Radio, label: 'Routine Load', permission: 'routine_load' },
+  { href: '/broker-load', icon: HardDrive, label: 'Broker Load', permission: 'broker_load' },
+  { href: '/pipes', icon: GitBranch, label: 'Pipes', permission: 'pipes' },
+  { href: '/task-manager', icon: CalendarClock, label: 'Submit Task', permission: 'task_manager' },
+  { href: '/tasks', icon: ListChecks, label: 'Task Runs', permission: 'tasks' },
+  { label: '权限管理', section: true },
+  { href: '/users', icon: Users, label: '用户管理', permission: 'users' },
+  { href: '/roles', icon: ShieldCheck, label: '角色管理', permission: 'roles' },
+  { href: '/privileges', icon: Shield, label: '权限管理', permission: 'privileges' },
   { label: '集群运维', section: true },
-  { href: '/nodes', icon: Server, label: '节点管理', minRole: 'admin' },
-  { href: '/resource-groups', icon: Layers, label: '资源组', minRole: 'editor' },
-  { href: '/functions', icon: Code2, label: '函数管理' },
-  { href: '/variables', icon: Settings, label: '变量管理' },
-  { label: '平台设置', section: true, minRole: 'admin' },
-  { href: '/cluster-manager', icon: Network, label: '集群管理', minRole: 'admin' },
-  { href: '/sys-users', icon: UserCog, label: '系统用户', minRole: 'admin' },
-  { href: '/audit', icon: ScrollText, label: '审计日志', minRole: 'admin' },
-  { href: '/design-system', icon: Paintbrush, label: 'UI 规范', minRole: 'admin' },
+  { href: '/nodes', icon: Server, label: '节点管理', permission: 'nodes' },
+  { href: '/resource-groups', icon: Layers, label: '资源组', permission: 'resource_groups' },
+  { href: '/functions', icon: Code2, label: '函数管理', permission: 'functions' },
+  { href: '/variables', icon: Settings, label: '变量管理', permission: 'variables' },
+  { label: '系统设置', section: true },
+  { href: '/cluster-manager', icon: Network, label: '集群管理', permission: 'cluster_manager' },
+  { href: '/sys-users', icon: UserCog, label: '系统用户', permission: 'sys_users' },
+  { href: '/audit', icon: ScrollText, label: '审计日志', permission: 'audit' },
+  { href: '/sys-permissions', icon: KeyRound, label: '权限配置', permission: 'sys_permissions' },
+  { href: '/design-system', icon: Paintbrush, label: 'UI 规范', adminOnly: true },
 ];
-
-const ROLE_LEVEL: Record<SysRole, number> = { viewer: 0, editor: 1, admin: 2 };
-
-function hasAccess(userRole: SysRole, minRole?: SysRole): boolean {
-  if (!minRole) return true;
-  return ROLE_LEVEL[userRole] >= ROLE_LEVEL[minRole];
-}
 
 export default function Sidebar() {
   const pathname = usePathname();
   const { user } = useAuth();
+  const { hasPermission } = usePermissions();
 
   if (!user) return null;
 
-  // Filter nav items by role
+  function canAccess(item: NavItem): boolean {
+    if (item.adminOnly) return user!.role === 'admin';
+    if (item.permission) return hasPermission(item.permission);
+    return true; // no restriction
+  }
+
+  // Filter nav items by permission
   const visibleItems = navItems.filter(item => {
     if (item.section) {
       const idx = navItems.indexOf(item);
       const nextSectionIdx = navItems.findIndex((n, i) => i > idx && n.section);
       const children = navItems.slice(idx + 1, nextSectionIdx === -1 ? undefined : nextSectionIdx);
-      return children.some(c => hasAccess(user.role, c.minRole));
+      return children.some(c => canAccess(c));
     }
-    return hasAccess(user.role, item.minRole);
+    return canAccess(item);
   });
 
   return (

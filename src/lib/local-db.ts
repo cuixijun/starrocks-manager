@@ -235,6 +235,14 @@ export function getLocalDb() {
     CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at);
     CREATE INDEX IF NOT EXISTS idx_audit_logs_category ON audit_logs(category);
     CREATE INDEX IF NOT EXISTS idx_audit_logs_user ON audit_logs(user_id);
+
+    -- System role permissions (configurable access control)
+    CREATE TABLE IF NOT EXISTS sys_role_permissions (
+      role       TEXT NOT NULL,
+      permission TEXT NOT NULL,
+      granted    INTEGER NOT NULL DEFAULT 1,
+      PRIMARY KEY (role, permission)
+    );
   `);
 
   // Auto-seed admin user on first run
