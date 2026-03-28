@@ -218,6 +218,23 @@ export function getLocalDb() {
       FOREIGN KEY (user_id)    REFERENCES sys_users(id) ON DELETE CASCADE,
       FOREIGN KEY (cluster_id) REFERENCES clusters(id)  ON DELETE SET NULL
     );
+
+    -- Audit logs
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id    INTEGER,
+      username   TEXT NOT NULL,
+      action     TEXT NOT NULL,
+      category   TEXT NOT NULL DEFAULT 'system',
+      level      TEXT NOT NULL DEFAULT 'basic',
+      target     TEXT DEFAULT '',
+      detail     TEXT DEFAULT '',
+      ip_address TEXT DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at);
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_category ON audit_logs(category);
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_user ON audit_logs(user_id);
   `);
 
   // Auto-seed admin user on first run
@@ -428,4 +445,133 @@ export function clearCommandLogs(sessionId: string, source?: string): void {
   } else {
     db.prepare('DELETE FROM command_log WHERE session_id = ?').run(sessionId);
   }
+}
+
+// ---- Audit System ----
+
+export type AuditLevel = 'off' | 'basic' | 'standard' | 'full';
+
+const AUDIT_LEVEL_PRIORITY: Record<AuditLevel, number> = {
+  off: 0,
+  basic: 1,
+  standard: 2,
+  full: 3,
+};
+
+export function getAuditLevel(): AuditLevel {
+  const val = getSetting('audit_level', 'standard');
+  if (val && val in AUDIT_LEVEL_PRIORITY) return val as AuditLevel;
+  return 'standard';
+}
+
+export function setAuditLevel(level: AuditLevel): void {
+  setSetting('audit_level', level);
+}
+
+export interface AuditLogEntry {
+  id: number;
+  user_id: number | null;
+  username: string;
+  action: string;
+  category: string;
+  level: string;
+  target: string;
+  detail: string;
+  ip_address: string;
+  created_at: string;
+}
+
+export interface RecordAuditParams {
+  userId?: number | null;
+  username: string;
+  action: string;
+  category: string;
+  level: AuditLevel;
+  target?: string;
+  detail?: string | object;
+  ipAddress?: string;
+}
+
+export function recordAuditLog(params: RecordAuditParams): void {
+  try {
+    const currentLevel = getAuditLevel();
+    // Check if current audit level covers this event
+    if (AUDIT_LEVEL_PRIORITY[currentLevel] < AUDIT_LEVEL_PRIORITY[params.level]) {
+      return; // Audit level too low, skip
+    }
+
+    const db = getLocalDb();
+    const detailStr = typeof params.detail === 'object' ? JSON.stringify(params.detail) : (params.detail || '');
+
+    db.prepare(`
+      INSERT INTO audit_logs (user_id, username, action, category, level, target, detail, ip_address)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      params.userId ?? null,
+      params.username,
+      params.action,
+      params.category,
+      params.level,
+      params.target || '',
+      detailStr,
+      params.ipAddress || '',
+    );
+
+    // Auto-cleanup: keep only last 10000 entries
+    db.prepare(`
+      DELETE FROM audit_logs WHERE id NOT IN (
+        SELECT id FROM audit_logs ORDER BY id DESC LIMIT 10000
+      )
+    `).run();
+  } catch { /* ignore audit errors to avoid disrupting main flow */ }
+}
+
+export interface AuditLogQuery {
+  page?: number;
+  pageSize?: number;
+  category?: string;
+  username?: string;
+  action?: string;
+  startDate?: string;
+  endDate?: string;
+}
+
+export function queryAuditLogs(query: AuditLogQuery = {}): { logs: AuditLogEntry[]; total: number } {
+  const db = getLocalDb();
+  const page = Math.max(1, query.page || 1);
+  const pageSize = Math.min(100, Math.max(1, query.pageSize || 20));
+  const offset = (page - 1) * pageSize;
+
+  const conditions: string[] = [];
+  const values: unknown[] = [];
+
+  if (query.category) {
+    conditions.push('category = ?');
+    values.push(query.category);
+  }
+  if (query.username) {
+    conditions.push('username LIKE ?');
+    values.push(`%${query.username}%`);
+  }
+  if (query.action) {
+    conditions.push('action LIKE ?');
+    values.push(`%${query.action}%`);
+  }
+  if (query.startDate) {
+    conditions.push("datetime(created_at) >= datetime(?)");
+    values.push(query.startDate);
+  }
+  if (query.endDate) {
+    conditions.push("datetime(created_at) <= datetime(?)");
+    values.push(query.endDate);
+  }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  const total = (db.prepare(`SELECT COUNT(*) as cnt FROM audit_logs ${where}`).get(...values) as { cnt: number }).cnt;
+  const logs = db.prepare(
+    `SELECT * FROM audit_logs ${where} ORDER BY id DESC LIMIT ? OFFSET ?`
+  ).all(...values, pageSize, offset) as AuditLogEntry[];
+
+  return { logs, total };
 }

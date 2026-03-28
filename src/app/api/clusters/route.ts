@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getLocalDb } from '@/lib/local-db';
+import { getLocalDb, recordAuditLog } from '@/lib/local-db';
 import { requireAuth, requireRole, AuthError, getUserClusters } from '@/lib/auth';
 import { testConnection } from '@/lib/db';
 import type { ClusterInfo } from '@/lib/auth';
@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
 // POST /api/clusters — create cluster (admin only)
 export async function POST(request: NextRequest) {
   try {
-    requireRole(request, 'admin');
+    const { user: operator } = requireRole(request, 'admin');
     const body = await request.json();
     const { action, name, host, port, username, password, default_db, description } = body;
 
@@ -66,6 +66,16 @@ export async function POST(request: NextRequest) {
       'INSERT INTO clusters (name, host, port, username, password, default_db, description) VALUES (?, ?, ?, ?, ?, ?, ?)'
     ).run(name, host, port || 9030, username, password || '', default_db || '', description || '');
 
+    // Audit: cluster.create
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || '';
+    recordAuditLog({
+      userId: operator.id, username: operator.username,
+      action: 'cluster.create', category: 'cluster', level: 'basic',
+      target: `集群 ${name}`,
+      detail: { clusterId: result.lastInsertRowid, host, port: port || 9030 },
+      ipAddress: ip,
+    });
+
     return NextResponse.json({
       success: true,
       cluster: { id: result.lastInsertRowid, name, host, port: port || 9030 },
@@ -79,7 +89,7 @@ export async function POST(request: NextRequest) {
 // PUT /api/clusters — update cluster (admin only)
 export async function PUT(request: NextRequest) {
   try {
-    requireRole(request, 'admin');
+    const { user: operator } = requireRole(request, 'admin');
     const { id, name, host, port, username, password, default_db, description, is_active } = await request.json();
 
     if (!id) {
@@ -110,6 +120,16 @@ export async function PUT(request: NextRequest) {
       id,
     );
 
+    // Audit: cluster.update
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || '';
+    recordAuditLog({
+      userId: operator.id, username: operator.username,
+      action: 'cluster.update', category: 'cluster', level: 'basic',
+      target: `集群 ${cluster.name}`,
+      detail: { clusterId: id, changes: { name, host, port, is_active } },
+      ipAddress: ip,
+    });
+
     return NextResponse.json({ success: true });
   } catch (err) {
     const status = err instanceof AuthError ? err.status : 500;
@@ -120,7 +140,7 @@ export async function PUT(request: NextRequest) {
 // DELETE /api/clusters — delete cluster (admin only)
 export async function DELETE(request: NextRequest) {
   try {
-    requireRole(request, 'admin');
+    const { user: operator } = requireRole(request, 'admin');
     const { id } = await request.json();
 
     if (!id) {
@@ -128,7 +148,17 @@ export async function DELETE(request: NextRequest) {
     }
 
     const db = getLocalDb();
+    const cluster = db.prepare('SELECT name FROM clusters WHERE id = ?').get(id) as { name: string } | undefined;
     db.prepare('DELETE FROM clusters WHERE id = ?').run(id);
+
+    // Audit: cluster.delete
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || '';
+    recordAuditLog({
+      userId: operator.id, username: operator.username,
+      action: 'cluster.delete', category: 'cluster', level: 'basic',
+      target: `集群 ${cluster?.name || id}`,
+      ipAddress: ip,
+    });
 
     return NextResponse.json({ success: true });
   } catch (err) {

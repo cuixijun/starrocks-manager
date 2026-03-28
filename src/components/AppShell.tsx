@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { usePathname } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import ThemeSwitcher from '@/components/ThemeSwitcher';
 import ClusterOfflineBanner from '@/components/ClusterOfflineBanner';
+import Watermark from '@/components/Watermark';
 import { useAuth } from '@/hooks/useAuth';
 import { Modal } from '@/components/ui/Modal';
 import { LogOut, ChevronDown, User, Check, Server, KeyRound, AlertCircle } from 'lucide-react';
@@ -132,6 +133,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   if (!user) return null;
+
+  // Build watermark content: username + date
+  const watermarkContent = [
+    user.display_name || user.username,
+    new Date().toLocaleDateString('zh-CN'),
+  ];
 
   const isExempt = CLUSTER_EXEMPT_PATHS.some(p => pathname?.startsWith(p));
 
@@ -284,6 +291,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   if (!activeCluster && !isExempt) {
     return (
       <div className="app-layout">
+        <Watermark content={watermarkContent} />
         <Sidebar />
         <main className="main-content">
           {headerBar}
@@ -308,6 +316,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   if (clusterStatus === 'switching' && !isExempt) {
     return (
       <div className="app-layout">
+        <Watermark content={watermarkContent} />
         <Sidebar />
         <main className="main-content">
           {headerBar}
@@ -332,6 +341,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   if (clusterOffline && !isExempt) {
     return (
       <div className="app-layout">
+        <Watermark content={watermarkContent} />
         <Sidebar />
         <main className="main-content">
           {headerBar}
@@ -348,6 +358,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <>
+      <Watermark content={watermarkContent} />
       <div className="app-layout">
         <Sidebar />
         <main className="main-content">

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/db';
 import { validateIdentifier, validatePrivilege, validateObjectType, escapeSqlString } from '@/lib/sql-sanitize';
+import { recordAuditLog } from '@/lib/local-db';
+import { getAuthFromRequest, validateSession } from '@/lib/auth';
 
 /**
  * POST /api/grants — Execute GRANT / REVOKE statements
@@ -62,6 +64,19 @@ export async function POST(request: NextRequest) {
     }
 
     await executeQuery(sessionId, sql, undefined, 'grants');
+
+    // Audit: permission change
+    const token = getAuthFromRequest(request);
+    const sess = token ? validateSession(token) : null;
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || '';
+    recordAuditLog({
+      userId: sess?.user?.id, username: sess?.user?.username || 'unknown',
+      action: `permission.${action}`, category: 'permission', level: 'basic',
+      target: grantee,
+      detail: { sql, action, grantee, privilege, objectType, objectName, roleName },
+      ipAddress: ip,
+    });
+
     return NextResponse.json({ success: true, sql });
   } catch (err) {
     return NextResponse.json(

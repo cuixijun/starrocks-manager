@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getLocalDb } from '@/lib/local-db';
 import { verifyPassword, hashPassword, createSession, validateSession, destroySession, getAuthFromRequest, getUserClusters } from '@/lib/auth';
 import { validateCaptcha } from '@/app/api/captcha/route';
+import { recordAuditLog } from '@/lib/local-db';
 import type { SysUser } from '@/lib/auth';
 
 interface SysUserRow extends SysUser {
@@ -64,6 +65,14 @@ export async function POST(request: NextRequest) {
       // Update last login time
       db.prepare('UPDATE sys_users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?').run(user.id);
 
+      // Audit: login
+      const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || '';
+      recordAuditLog({
+        userId: user.id, username: user.username,
+        action: 'auth.login', category: 'auth', level: 'standard',
+        target: user.username, ipAddress: ip,
+      });
+
       const response = NextResponse.json({
         success: true,
         user: {
@@ -91,8 +100,20 @@ export async function POST(request: NextRequest) {
     // --- Logout ---
     if (action === 'logout') {
       const token = getAuthFromRequest(request);
+      let logoutUser: string | undefined;
       if (token) {
+        const sess = validateSession(token);
+        logoutUser = sess?.user?.username;
         destroySession(token);
+      }
+      // Audit: logout
+      if (logoutUser) {
+        const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || '';
+        recordAuditLog({
+          userId: null, username: logoutUser,
+          action: 'auth.logout', category: 'auth', level: 'standard',
+          target: logoutUser, ipAddress: ip,
+        });
       }
       const response = NextResponse.json({ success: true });
       response.cookies.delete('sys_token');

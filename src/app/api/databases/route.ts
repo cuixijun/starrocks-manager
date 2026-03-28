@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/db';
 import { escapeBacktickId } from '@/lib/sql-sanitize';
-import { upsertDbCache, getDbCache } from '@/lib/local-db';
+import { upsertDbCache, getDbCache, recordAuditLog } from '@/lib/local-db';
+import { getAuthFromRequest, validateSession } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
@@ -130,6 +131,17 @@ export async function POST(request: NextRequest) {
     }
 
     await executeQuery(sessionId, `CREATE DATABASE IF NOT EXISTS \`${escapeBacktickId(name)}\``, undefined, 'databases');
+
+    // Audit: database.create
+    const token = getAuthFromRequest(request);
+    const sess = token ? validateSession(token) : null;
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || '';
+    recordAuditLog({
+      userId: sess?.user?.id, username: sess?.user?.username || 'unknown',
+      action: 'database.create', category: 'query', level: 'basic',
+      target: `数据库 ${name}`, ipAddress: ip,
+    });
+
     return NextResponse.json({ success: true, message: `数据库 ${name} 创建成功` });
   } catch (err) {
     return NextResponse.json(
@@ -156,6 +168,17 @@ export async function DELETE(request: NextRequest) {
       ? `DROP DATABASE \`${escapeBacktickId(name)}\` FORCE`
       : `DROP DATABASE IF EXISTS \`${escapeBacktickId(name)}\``;
     await executeQuery(sessionId, sql, undefined, 'databases');
+
+    // Audit: database.drop
+    const token = getAuthFromRequest(request);
+    const sess = token ? validateSession(token) : null;
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || '';
+    recordAuditLog({
+      userId: sess?.user?.id, username: sess?.user?.username || 'unknown',
+      action: 'database.drop', category: 'query', level: 'basic',
+      target: `数据库 ${name}`, detail: { force: !!force }, ipAddress: ip,
+    });
+
     return NextResponse.json({ success: true, message: `数据库 ${name} 已删除` });
   } catch (err) {
     return NextResponse.json(

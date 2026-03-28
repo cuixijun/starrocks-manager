@@ -26,6 +26,7 @@ import {
   CalendarClock,
   UserCog,
   Network,
+  ScrollText,
 } from 'lucide-react';
 
 interface NavItem {
@@ -62,6 +63,7 @@ const navItems: NavItem[] = [
   { label: '平台设置', section: true, minRole: 'admin' },
   { href: '/cluster-manager', icon: Network, label: '集群管理', minRole: 'admin' },
   { href: '/sys-users', icon: UserCog, label: '系统用户', minRole: 'admin' },
+  { href: '/audit', icon: ScrollText, label: '审计日志', minRole: 'admin' },
   { href: '/design-system', icon: Paintbrush, label: 'UI 规范', minRole: 'admin' },
 ];
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getLocalDb } from '@/lib/local-db';
+import { getLocalDb, recordAuditLog } from '@/lib/local-db';
 import { requireRole, AuthError, hashPassword } from '@/lib/auth';
 import type { SysUser } from '@/lib/auth';
 
@@ -16,7 +16,7 @@ function validatePassword(pwd: string): string | null {
 // GET /api/sys-users — list system users (admin only)
 export async function GET(request: NextRequest) {
   try {
-    requireRole(request, 'admin');
+    const { user: operator } = requireRole(request, 'admin');
     const db = getLocalDb();
     const users = db.prepare(
       `SELECT id, username, display_name, role, is_active, created_at, updated_at, last_login_at
@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
 // POST /api/sys-users — create user (admin only)
 export async function POST(request: NextRequest) {
   try {
-    requireRole(request, 'admin');
+    const { user: operator } = requireRole(request, 'admin');
     const { username, password, display_name, role, cluster_ids } = await request.json();
 
     if (!username || !password) {
@@ -82,6 +82,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Audit: user.create
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || '';
+    recordAuditLog({
+      userId: operator.id, username: operator.username,
+      action: 'user.create', category: 'user', level: 'basic',
+      target: `用户 ${username}`,
+      detail: { newUserId: userId, role: role || 'viewer' },
+      ipAddress: ip,
+    });
+
     return NextResponse.json({ success: true, id: userId });
   } catch (err) {
     const status = err instanceof AuthError ? err.status : 500;
@@ -92,7 +102,7 @@ export async function POST(request: NextRequest) {
 // PUT /api/sys-users — update user (admin only)
 export async function PUT(request: NextRequest) {
   try {
-    requireRole(request, 'admin');
+    const { user: operator } = requireRole(request, 'admin');
     const { id, username, password, display_name, role, is_active, cluster_ids } = await request.json();
 
     if (!id) {
@@ -160,6 +170,16 @@ export async function PUT(request: NextRequest) {
       }
     }
 
+    // Audit: user.update
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || '';
+    recordAuditLog({
+      userId: operator.id, username: operator.username,
+      action: 'user.update', category: 'user', level: 'basic',
+      target: `用户 ${user.username}`,
+      detail: { targetUserId: id, changes: { username, display_name, role, is_active } },
+      ipAddress: ip,
+    });
+
     return NextResponse.json({ success: true });
   } catch (err) {
     const status = err instanceof AuthError ? err.status : 500;
@@ -170,7 +190,7 @@ export async function PUT(request: NextRequest) {
 // DELETE /api/sys-users — delete user (admin only)
 export async function DELETE(request: NextRequest) {
   try {
-    requireRole(request, 'admin');
+    const { user: operator } = requireRole(request, 'admin');
     const { id } = await request.json();
 
     if (!id) {
@@ -178,7 +198,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     const db = getLocalDb();
-    const user = db.prepare('SELECT role FROM sys_users WHERE id = ?').get(id) as { role: string } | undefined;
+    const user = db.prepare('SELECT role, username FROM sys_users WHERE id = ?').get(id) as { role: string; username: string } | undefined;
     if (!user) {
       return NextResponse.json({ error: '用户不存在' }, { status: 404 });
     }
@@ -191,7 +211,20 @@ export async function DELETE(request: NextRequest) {
       }
     }
 
+    // Capture username before deletion for audit
+    const deletedUsername = user.username;
+
     db.prepare('DELETE FROM sys_users WHERE id = ?').run(id);
+
+    // Audit: user.delete
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || '';
+    recordAuditLog({
+      userId: operator.id, username: operator.username,
+      action: 'user.delete', category: 'user', level: 'basic',
+      target: `用户 ${deletedUsername}`,
+      ipAddress: ip,
+    });
+
     return NextResponse.json({ success: true });
   } catch (err) {
     const status = err instanceof AuthError ? err.status : 500;
