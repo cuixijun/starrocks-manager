@@ -24,12 +24,12 @@ export async function GET(request: NextRequest) {
 
     if (role) {
       // Return permissions list for specific role (used by frontend hook)
-      const permissions = getPermissionsForRole(role as 'admin' | 'editor' | 'viewer');
+      const permissions = await getPermissionsForRole(role as 'admin' | 'editor' | 'viewer');
       return NextResponse.json({ permissions });
     }
 
     // Full matrix + metadata (for management UI)
-    const matrix = getAllRolePermissions();
+    const matrix = await getAllRolePermissions();
     return NextResponse.json({
       matrix,
       meta: PERMISSION_META,
@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
  */
 export async function PUT(request: NextRequest) {
   try {
-    const { user: operator } = requireRole(request, 'admin');
+    const { user: operator } = await requireRole(request, 'admin');
     const { role, permissions, action } = await request.json();
 
     if (!role) {
@@ -57,11 +57,11 @@ export async function PUT(request: NextRequest) {
     }
 
     if (action === 'reset') {
-      resetRolePermissions(role);
+      await resetRolePermissions(role);
 
       // Audit
       const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || '';
-      recordAuditLog({
+      await recordAuditLog({
         userId: operator.id, username: operator.username,
         action: 'permission.reset', category: 'permission', level: 'basic',
         target: `角色 ${role}`,
@@ -76,11 +76,11 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'permissions 参数无效' }, { status: 400 });
     }
 
-    updateRolePermissions(role, permissions);
+    await updateRolePermissions(role, permissions);
 
     // Audit
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || '';
-    recordAuditLog({
+    await recordAuditLog({
       userId: operator.id, username: operator.username,
       action: 'permission.update', category: 'permission', level: 'basic',
       target: `角色 ${role}`,

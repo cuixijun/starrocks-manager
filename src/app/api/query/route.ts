@@ -9,7 +9,7 @@ const AUDIT_SQL_PATTERN = /^\s*(CREATE|DROP|ALTER|INSERT|DELETE|UPDATE|TRUNCATE|
 
 export async function POST(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.QUERY);
+    await requirePermission(request, PERMISSIONS.QUERY);
     const { sessionId, sql } = await request.json();
     if (!sessionId || !sql) {
       return NextResponse.json({ error: 'Session ID and SQL required' }, { status: 400 });
@@ -26,10 +26,10 @@ export async function POST(request: NextRequest) {
     if (AUDIT_SQL_PATTERN.test(trimmed)) {
       try {
         const token = getAuthFromRequest(request);
-        const sess = token ? validateSession(token) : null;
+        const sess = token ? await validateSession(token) : null;
         const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || '';
         const sqlPreview = trimmed.length > 200 ? trimmed.slice(0, 200) + '...' : trimmed;
-        recordAuditLog({
+        await recordAuditLog({
           userId: sess?.user?.id, username: sess?.user?.username || 'unknown',
           action: 'query.execute', category: 'query', level: 'standard',
           target: sqlPreview.split(/\s+/).slice(0, 4).join(' '),

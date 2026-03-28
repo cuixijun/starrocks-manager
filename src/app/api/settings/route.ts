@@ -5,7 +5,7 @@ export async function GET(request: NextRequest) {
   try {
     const key = request.nextUrl.searchParams.get('key');
     if (key) {
-      const value = getSetting(key);
+      const value = await getSetting(key);
       return NextResponse.json({ key, value });
     }
     return NextResponse.json({ error: 'Key parameter required' }, { status: 400 });
@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
     if (!key) {
       return NextResponse.json({ error: 'Key is required' }, { status: 400 });
     }
-    setSetting(key, value);
+    await setSetting(key, value);
     return NextResponse.json({ success: true });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });

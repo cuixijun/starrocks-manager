@@ -16,22 +16,24 @@ function validatePassword(pwd: string): string | null {
 // GET /api/sys-users — list system users (admin only)
 export async function GET(request: NextRequest) {
   try {
-    const { user: operator } = requireRole(request, 'admin');
-    const db = getLocalDb();
-    const users = db.prepare(
+    const { user: operator } = await requireRole(request, 'admin');
+    const db = await getLocalDb();
+    const users = await db.all<SysUser>(
       `SELECT id, username, display_name, role, is_active, created_at, updated_at, last_login_at
-       FROM sys_users ORDER BY id`
-    ).all() as SysUser[];
+       FROM sys_users ORDER BY id`,
+    );
 
     // Get cluster access for each user
-    const enriched = users.map(u => {
-      const clusters = db.prepare(
+    const enriched = [];
+    for (const u of users) {
+      const clusters = await db.all<{ id: number; name: string }>(
         `SELECT c.id, c.name FROM clusters c
          INNER JOIN user_cluster_access uca ON c.id = uca.cluster_id
-         WHERE uca.user_id = ?`
-      ).all(u.id) as { id: number; name: string }[];
-      return { ...u, clusters };
-    });
+         WHERE uca.user_id = ?`,
+        [u.id],
+      );
+      enriched.push({ ...u, clusters });
+    }
 
     return NextResponse.json({ users: enriched });
   } catch (err) {
@@ -43,7 +45,7 @@ export async function GET(request: NextRequest) {
 // POST /api/sys-users — create user (admin only)
 export async function POST(request: NextRequest) {
   try {
-    const { user: operator } = requireRole(request, 'admin');
+    const { user: operator } = await requireRole(request, 'admin');
     const { username, password, display_name, role, cluster_ids } = await request.json();
 
     if (!username || !password) {
@@ -59,32 +61,37 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: pwdErr }, { status: 400 });
     }
 
-    const db = getLocalDb();
+    const db = await getLocalDb();
 
     // Check duplicate
-    const existing = db.prepare('SELECT id FROM sys_users WHERE username = ?').get(username);
+    const existing = await db.get<{ id: number }>('SELECT id FROM sys_users WHERE username = ?', [username]);
     if (existing) {
       return NextResponse.json({ error: `用户 "${username}" 已存在` }, { status: 409 });
     }
 
     const hash = hashPassword(password);
-    const result = db.prepare(
-      'INSERT INTO sys_users (username, password_hash, display_name, role) VALUES (?, ?, ?, ?)'
-    ).run(username, hash, display_name || '', role || 'viewer');
+    const result = await db.run(
+      'INSERT INTO sys_users (username, password_hash, display_name, role) VALUES (?, ?, ?, ?)',
+      [username, hash, display_name || '', role || 'viewer'],
+    );
 
-    const userId = result.lastInsertRowid as number;
+    const userId = result.insertId;
 
     // Assign cluster access
     if (Array.isArray(cluster_ids) && cluster_ids.length > 0) {
-      const insert = db.prepare('INSERT OR IGNORE INTO user_cluster_access (user_id, cluster_id) VALUES (?, ?)');
       for (const cid of cluster_ids) {
-        insert.run(userId, cid);
+        await db.run(
+          db.isMysql
+            ? 'INSERT IGNORE INTO user_cluster_access (user_id, cluster_id) VALUES (?, ?)'
+            : 'INSERT OR IGNORE INTO user_cluster_access (user_id, cluster_id) VALUES (?, ?)',
+          [userId, cid],
+        );
       }
     }
 
     // Audit: user.create
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || '';
-    recordAuditLog({
+    await recordAuditLog({
       userId: operator.id, username: operator.username,
       action: 'user.create', category: 'user', level: 'basic',
       target: `用户 ${username}`,
@@ -102,23 +109,23 @@ export async function POST(request: NextRequest) {
 // PUT /api/sys-users — update user (admin only)
 export async function PUT(request: NextRequest) {
   try {
-    const { user: operator } = requireRole(request, 'admin');
+    const { user: operator } = await requireRole(request, 'admin');
     const { id, username, password, display_name, role, is_active, cluster_ids } = await request.json();
 
     if (!id) {
       return NextResponse.json({ error: 'User ID required' }, { status: 400 });
     }
 
-    const db = getLocalDb();
-    const user = db.prepare('SELECT * FROM sys_users WHERE id = ?').get(id) as (SysUser & { password_hash: string }) | undefined;
+    const db = await getLocalDb();
+    const user = await db.get<SysUser & { password_hash: string }>('SELECT * FROM sys_users WHERE id = ?', [id]);
     if (!user) {
       return NextResponse.json({ error: '用户不存在' }, { status: 404 });
     }
 
     // Prevent disabling the last admin
     if (is_active === 0 && user.role === 'admin') {
-      const adminCount = db.prepare("SELECT COUNT(*) as cnt FROM sys_users WHERE role = 'admin' AND is_active = 1").get() as { cnt: number };
-      if (adminCount.cnt <= 1) {
+      const adminCount = await db.get<{ cnt: number }>("SELECT COUNT(*) as cnt FROM sys_users WHERE role = 'admin' AND is_active = 1");
+      if ((adminCount?.cnt || 0) <= 1) {
         return NextResponse.json({ error: '不能禁用最后一个管理员账号' }, { status: 400 });
       }
     }
@@ -130,8 +137,8 @@ export async function PUT(request: NextRequest) {
 
     // Prevent role downgrade that would leave zero admins
     if (role !== undefined && role !== 'admin' && user.role === 'admin') {
-      const adminCount = db.prepare("SELECT COUNT(*) as cnt FROM sys_users WHERE role = 'admin' AND is_active = 1").get() as { cnt: number };
-      if (adminCount.cnt <= 1) {
+      const adminCount = await db.get<{ cnt: number }>("SELECT COUNT(*) as cnt FROM sys_users WHERE role = 'admin' AND is_active = 1");
+      if ((adminCount?.cnt || 0) <= 1) {
         return NextResponse.json({ error: '不能修改最后一个管理员的角色' }, { status: 400 });
       }
     }
@@ -159,20 +166,24 @@ export async function PUT(request: NextRequest) {
     updates.push('updated_at = CURRENT_TIMESTAMP');
     values.push(id);
 
-    db.prepare(`UPDATE sys_users SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+    await db.run(`UPDATE sys_users SET ${updates.join(', ')} WHERE id = ?`, values);
 
     // Update cluster access
     if (Array.isArray(cluster_ids)) {
-      db.prepare('DELETE FROM user_cluster_access WHERE user_id = ?').run(id);
-      const insert = db.prepare('INSERT OR IGNORE INTO user_cluster_access (user_id, cluster_id) VALUES (?, ?)');
+      await db.run('DELETE FROM user_cluster_access WHERE user_id = ?', [id]);
       for (const cid of cluster_ids) {
-        insert.run(id, cid);
+        await db.run(
+          db.isMysql
+            ? 'INSERT IGNORE INTO user_cluster_access (user_id, cluster_id) VALUES (?, ?)'
+            : 'INSERT OR IGNORE INTO user_cluster_access (user_id, cluster_id) VALUES (?, ?)',
+          [id, cid],
+        );
       }
     }
 
     // Audit: user.update
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || '';
-    recordAuditLog({
+    await recordAuditLog({
       userId: operator.id, username: operator.username,
       action: 'user.update', category: 'user', level: 'basic',
       target: `用户 ${user.username}`,
@@ -190,23 +201,23 @@ export async function PUT(request: NextRequest) {
 // DELETE /api/sys-users — delete user (admin only)
 export async function DELETE(request: NextRequest) {
   try {
-    const { user: operator } = requireRole(request, 'admin');
+    const { user: operator } = await requireRole(request, 'admin');
     const { id } = await request.json();
 
     if (!id) {
       return NextResponse.json({ error: 'User ID required' }, { status: 400 });
     }
 
-    const db = getLocalDb();
-    const user = db.prepare('SELECT role, username FROM sys_users WHERE id = ?').get(id) as { role: string; username: string } | undefined;
+    const db = await getLocalDb();
+    const user = await db.get<{ role: string; username: string }>('SELECT role, username FROM sys_users WHERE id = ?', [id]);
     if (!user) {
       return NextResponse.json({ error: '用户不存在' }, { status: 404 });
     }
 
     // Prevent deleting the last admin
     if (user.role === 'admin') {
-      const adminCount = db.prepare("SELECT COUNT(*) as cnt FROM sys_users WHERE role = 'admin'").get() as { cnt: number };
-      if (adminCount.cnt <= 1) {
+      const adminCount = await db.get<{ cnt: number }>("SELECT COUNT(*) as cnt FROM sys_users WHERE role = 'admin'");
+      if ((adminCount?.cnt || 0) <= 1) {
         return NextResponse.json({ error: '不能删除最后一个管理员账号' }, { status: 400 });
       }
     }
@@ -214,11 +225,11 @@ export async function DELETE(request: NextRequest) {
     // Capture username before deletion for audit
     const deletedUsername = user.username;
 
-    db.prepare('DELETE FROM sys_users WHERE id = ?').run(id);
+    await db.run('DELETE FROM sys_users WHERE id = ?', [id]);
 
     // Audit: user.delete
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || '';
-    recordAuditLog({
+    await recordAuditLog({
       userId: operator.id, username: operator.username,
       action: 'user.delete', category: 'user', level: 'basic',
       target: `用户 ${deletedUsername}`,

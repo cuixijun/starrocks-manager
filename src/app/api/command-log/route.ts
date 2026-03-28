@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const logs = getCommandLogs(sessionId, source, limit);
+    const logs = await getCommandLogs(sessionId, source, limit);
     return NextResponse.json({ logs });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
@@ -26,7 +26,7 @@ export async function DELETE(request: NextRequest) {
   }
 
   try {
-    clearCommandLogs(sessionId, source);
+    await clearCommandLogs(sessionId, source);
     return NextResponse.json({ success: true });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });

@@ -7,7 +7,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { user, session } = requireAuth(request);
+    const { user, session } = await requireAuth(request);
     const { id } = await params;
     const clusterId = parseInt(id, 10);
 
@@ -16,20 +16,20 @@ export async function POST(
     }
 
     // Check if user has access to this cluster
-    const accessibleClusters = getUserClusters(user.id, user.role);
+    const accessibleClusters = await getUserClusters(user.id, user.role);
     const target = accessibleClusters.find(c => c.id === clusterId);
     if (!target) {
       return NextResponse.json({ error: '无权访问此集群' }, { status: 403 });
     }
 
     // Verify cluster exists and is active
-    const cluster = getCluster(clusterId);
+    const cluster = await getCluster(clusterId);
     if (!cluster) {
       return NextResponse.json({ error: '集群不存在或已禁用' }, { status: 404 });
     }
 
     // Switch the session's active cluster — instant, no blocking
-    switchCluster(session.token, clusterId);
+    await switchCluster(session.token, clusterId);
 
     // Clear any failure cooldown for this cluster so health checks can proceed
     clearConnectionFailure(`${cluster.host}:${cluster.port}`);

@@ -7,7 +7,7 @@ import { AuthError } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.ROLES);
+    await requirePermission(request, PERMISSIONS.ROLES);
     const sessionId = request.nextUrl.searchParams.get('sessionId');
     const refresh = request.nextUrl.searchParams.get('refresh') === 'true';
 
@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
 
     // ── Serve from cache unless explicitly refreshing ──
     if (!refresh) {
-      const cached = getBlobCache('roles_cache', sessionId);
+      const cached = await getBlobCache('roles_cache', sessionId);
       if (cached) {
         return NextResponse.json({ roles: cached.data, cachedAt: cached.cachedAt, fromCache: true });
       }
@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
     // Persist to SQLite cache
     let cachedAt: string | undefined;
     try {
-      cachedAt = setBlobCache('roles_cache', sessionId, roles);
+      cachedAt = await setBlobCache('roles_cache', sessionId, roles);
     } catch { /* non-fatal */ }
 
     return NextResponse.json({ roles, cachedAt, fromCache: false });
@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.ROLES);
+    await requirePermission(request, PERMISSIONS.ROLES);
     const { sessionId, action, roleName, userName, userHost } = await request.json();
     if (!sessionId || !roleName) {
       return NextResponse.json({ error: 'Session ID and role name required' }, { status: 400 });

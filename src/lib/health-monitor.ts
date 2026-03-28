@@ -44,10 +44,10 @@ interface ClusterRow {
 /** Check all clusters and update the shared cache */
 export async function checkAllClustersHealth(): Promise<void> {
   try {
-    const db = getLocalDb();
-    const clusters = db.prepare(
-      'SELECT id, host, port, username, password FROM clusters'
-    ).all() as ClusterRow[];
+    const db = await getLocalDb();
+    const clusters = await db.all<ClusterRow>(
+      'SELECT id, host, port, username, password FROM clusters',
+    );
 
     const newCache: Record<number, ClusterHealthStatus> = {};
 

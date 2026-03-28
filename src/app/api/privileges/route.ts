@@ -6,7 +6,7 @@ import { AuthError } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.PRIVILEGES);
+    await requirePermission(request, PERMISSIONS.PRIVILEGES);
     const sessionId = request.nextUrl.searchParams.get('sessionId');
     const user = request.nextUrl.searchParams.get('user');
     if (!sessionId) {

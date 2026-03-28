@@ -1,204 +1,179 @@
 /**
- * Database adapter — unified interface for SQLite and MySQL.
- * All local-db operations use this interface, making the storage backend swappable.
+ * Database adapter — unified ASYNC interface for SQLite and MySQL.
+ * All local-db operations call through this adapter.
  */
 
-// better-sqlite3 is loaded dynamically in SqliteAdapter to avoid
-// Turbopack static resolution failures when the native module is absent (e.g. MySQL-only Docker builds).
-import mysql from 'mysql2/promise';
-import { config } from './config';
-import { logger } from './logger';
 import path from 'path';
 import fs from 'fs';
+import { config } from './config';
 
-// ─── Unified interface ───
+// ── Types ────────────────────────────────────────────────────────────
+
+export interface RunResult {
+  changes: number;
+  insertId: number;
+}
+
+// ── Adapter Interface ────────────────────────────────────────────────
 
 export interface DbAdapter {
-  /** Execute a write statement (INSERT/UPDATE/DELETE). Returns { changes, lastInsertRowid }. */
-  run(sql: string, params?: unknown[]): { changes: number; lastInsertRowid: number | bigint };
-  /** Query a single row */
-  get<T = Record<string, unknown>>(sql: string, params?: unknown[]): T | undefined;
-  /** Query multiple rows */
-  all<T = Record<string, unknown>>(sql: string, params?: unknown[]): T[];
-  /** Execute raw SQL (for DDL, multi-statement) */
-  exec(sql: string): void;
-  /** Run a function inside a transaction */
-  transaction<T>(fn: () => T): T;
-  /** Prepare a reusable statement (for perf-critical paths) */
-  prepare(sql: string): PreparedStatement;
-  /** Close the connection */
-  close(): void;
-  /** Which dialect */
-  readonly dialect: 'sqlite' | 'mysql';
+  get<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T | undefined>;
+  all<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]>;
+  run(sql: string, params?: unknown[]): Promise<RunResult>;
+  exec(sql: string): Promise<void>;
+  withTransaction(fn: (db: DbAdapter) => Promise<void>): Promise<void>;
+  /** Generate cross-dialect UPSERT SQL */
+  upsertSql(table: string, cols: string[], conflictCols: string[], updateCols: string[]): string;
+  isMysql: boolean;
 }
 
-export interface PreparedStatement {
-  run(...params: unknown[]): { changes: number; lastInsertRowid: number | bigint };
-  get(...params: unknown[]): Record<string, unknown> | undefined;
-  all(...params: unknown[]): Record<string, unknown>[];
-}
+// ── SQLite Adapter ───────────────────────────────────────────────────
 
-// ─── SQLite adapter ───
-
-export class SqliteAdapter implements DbAdapter {
-  readonly dialect = 'sqlite' as const;
+class SqliteAdapter implements DbAdapter {
+  isMysql = false;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private db: any;
 
-  constructor(dbPath: string) {
-    const absPath = path.isAbsolute(dbPath) ? dbPath : path.join(process.cwd(), dbPath);
-    const dir = path.dirname(absPath);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
-    // eval('require') completely hides the module from Turbopack/webpack static analysis
+  constructor() {
+    const DB_PATH = path.isAbsolute(config.database.sqlite.path)
+      ? config.database.sqlite.path
+      : path.join(process.cwd(), config.database.sqlite.path);
+    const DB_DIR = path.dirname(DB_PATH);
+    if (!fs.existsSync(DB_DIR)) {
+      fs.mkdirSync(DB_DIR, { recursive: true });
+    }
     // eslint-disable-next-line @typescript-eslint/no-require-imports, no-eval
-    const BetterSqlite3 = eval('require')('better-sqlite3');
-    this.db = new BetterSqlite3(absPath);
+    const Database = eval('require')('better-sqlite3');
+    this.db = new Database(DB_PATH);
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
-    logger.info(`[DB] SQLite connected: ${absPath}`);
+    console.log(`[DB] SQLite: ${DB_PATH}`);
   }
 
-  run(sql: string, params: unknown[] = []) {
-    const result = this.db.prepare(sql).run(...params);
-    return { changes: result.changes, lastInsertRowid: result.lastInsertRowid };
-  }
-
-  get<T = Record<string, unknown>>(sql: string, params: unknown[] = []): T | undefined {
+  async get<T>(sql: string, params: unknown[] = []): Promise<T | undefined> {
     return this.db.prepare(sql).get(...params) as T | undefined;
   }
-
-  all<T = Record<string, unknown>>(sql: string, params: unknown[] = []): T[] {
+  async all<T>(sql: string, params: unknown[] = []): Promise<T[]> {
     return this.db.prepare(sql).all(...params) as T[];
   }
-
-  exec(sql: string) {
+  async run(sql: string, params: unknown[] = []): Promise<RunResult> {
+    const info = this.db.prepare(sql).run(...params);
+    return { changes: info.changes, insertId: Number(info.lastInsertRowid) };
+  }
+  async exec(sql: string): Promise<void> {
     this.db.exec(sql);
   }
-
-  transaction<T>(fn: () => T): T {
-    return this.db.transaction(fn)();
+  async withTransaction(fn: (db: DbAdapter) => Promise<void>): Promise<void> {
+    this.db.exec('BEGIN');
+    try {
+      await fn(this);
+      this.db.exec('COMMIT');
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
   }
-
-  prepare(sql: string): PreparedStatement {
-    const stmt = this.db.prepare(sql);
-    return {
-      run: (...params: unknown[]) => {
-        const r = stmt.run(...params);
-        return { changes: r.changes, lastInsertRowid: r.lastInsertRowid };
-      },
-      get: (...params: unknown[]) => stmt.get(...params) as Record<string, unknown> | undefined,
-      all: (...params: unknown[]) => stmt.all(...params) as Record<string, unknown>[],
-    };
-  }
-
-  close() {
-    this.db.close();
+  upsertSql(table: string, cols: string[], conflictCols: string[], updateCols: string[]): string {
+    const ph = cols.map(() => '?').join(', ');
+    const up = updateCols.map(c => `${c} = excluded.${c}`).join(', ');
+    return `INSERT INTO ${table} (${cols.join(', ')}) VALUES (${ph}) ON CONFLICT(${conflictCols.join(', ')}) DO UPDATE SET ${up}`;
   }
 }
 
-// ─── MySQL adapter ───
-// Wraps mysql2 pool. Since local-db uses synchronous-style calls,
-// we use a "cached pool" approach where queries are async under the hood
-// but we provide a synchronous-looking API via the adapter.
-// NOTE: For Next.js API routes (all async), this works fine.
-// The `prepare` method returns a wrapper that builds parameterized queries.
+// ── MySQL Adapter ────────────────────────────────────────────────────
 
-export class MysqlAdapter implements DbAdapter {
-  readonly dialect = 'mysql' as const;
-  private pool: mysql.Pool;
+class MysqlAdapter implements DbAdapter {
+  isMysql = true;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  protected pool: any;
 
-  constructor(cfg: { host: string; port: number; user: string; password: string; database: string }) {
-    this.pool = mysql.createPool({
-      host: cfg.host,
-      port: cfg.port,
-      user: cfg.user,
-      password: cfg.password,
-      database: cfg.database,
-      waitForConnections: true,
-      connectionLimit: 5,
-      connectTimeout: 5000,
-      multipleStatements: true,
-    });
-    logger.info(`[DB] MySQL pool created: ${cfg.host}:${cfg.port}/${cfg.database}`);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  constructor(pool: any) {
+    this.pool = pool;
   }
 
-  // MySQL adapter methods are ASYNC internally but we need a sync interface.
-  // Since local-db.ts was designed for sync sqlite, we use a "sync-over-async" shim
-  // via a module-level query cache + initialization pattern.
-  // For actual usage, callers should use the async variants.
-
-  run(sql: string, params: unknown[] = []): { changes: number; lastInsertRowid: number | bigint } {
-    throw new Error(`[MysqlAdapter] Use runAsync() instead of run() for MySQL. SQL: ${sql.slice(0, 80)}`);
-  }
-
-  get<T = Record<string, unknown>>(sql: string, params: unknown[] = []): T | undefined {
-    throw new Error(`[MysqlAdapter] Use getAsync() instead of get() for MySQL. SQL: ${sql.slice(0, 80)}`);
-  }
-
-  all<T = Record<string, unknown>>(sql: string, params: unknown[] = []): T[] {
-    throw new Error(`[MysqlAdapter] Use allAsync() instead of all() for MySQL. SQL: ${sql.slice(0, 80)}`);
-  }
-
-  exec(sql: string) {
-    throw new Error(`[MysqlAdapter] Use execAsync() instead of exec() for MySQL.`);
-  }
-
-  transaction<T>(fn: () => T): T {
-    throw new Error(`[MysqlAdapter] Use transactionAsync() for MySQL.`);
-  }
-
-  prepare(sql: string): PreparedStatement {
-    throw new Error(`[MysqlAdapter] Use async methods for MySQL.`);
-  }
-
-  // ─── Async methods (MySQL native) ───
-
-  async runAsync(sql: string, params: unknown[] = []) {
-    const [result] = await this.pool.execute(sql, params as (string | number | null)[]);
-    const r = result as mysql.ResultSetHeader;
-    return { changes: r.affectedRows || 0, lastInsertRowid: r.insertId || 0 };
-  }
-
-  async getAsync<T = Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<T | undefined> {
-    const [rows] = await this.pool.execute(sql, params as (string | number | null)[]);
+  async get<T>(sql: string, params: unknown[] = []): Promise<T | undefined> {
+    const [rows] = await this.pool.execute(sql, params);
     return (rows as T[])[0];
   }
-
-  async allAsync<T = Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<T[]> {
-    const [rows] = await this.pool.execute(sql, params as (string | number | null)[]);
+  async all<T>(sql: string, params: unknown[] = []): Promise<T[]> {
+    const [rows] = await this.pool.execute(sql, params);
     return rows as T[];
   }
-
-  async execAsync(sql: string) {
+  async run(sql: string, params: unknown[] = []): Promise<RunResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const [result] = await this.pool.execute(sql, params) as any[];
+    return { changes: result.affectedRows || 0, insertId: result.insertId || 0 };
+  }
+  async exec(sql: string): Promise<void> {
     await this.pool.query(sql);
   }
-
-  async transactionAsync<T>(fn: (conn: mysql.PoolConnection) => Promise<T>): Promise<T> {
+  async withTransaction(fn: (db: DbAdapter) => Promise<void>): Promise<void> {
     const conn = await this.pool.getConnection();
+    const txAdapter = new MysqlConnAdapter(conn);
     try {
       await conn.beginTransaction();
-      const result = await fn(conn);
+      await fn(txAdapter);
       await conn.commit();
-      return result;
-    } catch (err) {
+    } catch (e) {
       await conn.rollback();
-      throw err;
+      throw e;
     } finally {
       conn.release();
     }
   }
-
-  close() {
-    this.pool.end();
+  upsertSql(table: string, cols: string[], _conflictCols: string[], updateCols: string[]): string {
+    const ph = cols.map(() => '?').join(', ');
+    const up = updateCols.map(c => `${c} = VALUES(${c})`).join(', ');
+    return `INSERT INTO ${table} (${cols.join(', ')}) VALUES (${ph}) ON DUPLICATE KEY UPDATE ${up}`;
   }
 }
 
-// ─── Factory ───
+class MysqlConnAdapter extends MysqlAdapter {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  constructor(conn: any) { super(conn); }
+  async withTransaction(): Promise<void> { throw new Error('Nested transactions not supported'); }
+}
 
-export function createAdapter(): DbAdapter {
+// ── Singleton Factory ────────────────────────────────────────────────
+
+let _dbPromise: Promise<DbAdapter> | null = null;
+
+async function initAdapter(): Promise<DbAdapter> {
   if (config.database.type === 'mysql') {
-    return new MysqlAdapter(config.database.mysql);
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mysql = require('mysql2/promise');
+    const pool = mysql.createPool({
+      host: config.database.mysql.host,
+      port: config.database.mysql.port,
+      user: config.database.mysql.user,
+      password: config.database.mysql.password,
+      database: config.database.mysql.database,
+      waitForConnections: true,
+      connectionLimit: 10,
+      multipleStatements: true,
+      timezone: '+00:00',
+      dateStrings: true,
+      charset: 'utf8mb4',
+    });
+    console.log(`[DB] MySQL pool: ${config.database.mysql.host}:${config.database.mysql.port}/${config.database.mysql.database}`);
+    return new MysqlAdapter(pool);
+  } else {
+    return new SqliteAdapter();
   }
-  return new SqliteAdapter(config.database.sqlite.path);
+}
+
+export function getDb(): Promise<DbAdapter> {
+  if (!_dbPromise) {
+    _dbPromise = initAdapter();
+  }
+  return _dbPromise;
+}
+
+// ── Timestamp Normalization ──────────────────────────────────────────
+
+export function normalizeTimestamp(ts: string): string {
+  if (!ts) return ts;
+  if (ts.endsWith('Z')) return ts;
+  return ts.replace(' ', 'T') + 'Z';
 }

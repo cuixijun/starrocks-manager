@@ -7,7 +7,7 @@ import { AuthError } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.USERS);
+    await requirePermission(request, PERMISSIONS.USERS);
     const sessionId = request.nextUrl.searchParams.get('sessionId');
     const refresh = request.nextUrl.searchParams.get('refresh') === 'true';
 
@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
 
     // ── Serve from cache unless explicitly refreshing ──
     if (!refresh) {
-      const cached = getBlobCache('users_cache', sessionId);
+      const cached = await getBlobCache('users_cache', sessionId);
       if (cached) {
         return NextResponse.json({ users: cached.data, cachedAt: cached.cachedAt, fromCache: true });
       }
@@ -113,7 +113,7 @@ export async function GET(request: NextRequest) {
     // Persist to SQLite cache
     let cachedAt: string | undefined;
     try {
-      cachedAt = setBlobCache('users_cache', sessionId, userDataList);
+      cachedAt = await setBlobCache('users_cache', sessionId, userDataList);
     } catch { /* non-fatal */ }
 
     return NextResponse.json({ users: userDataList, cachedAt, fromCache: false });
@@ -127,7 +127,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.USERS);
+    await requirePermission(request, PERMISSIONS.USERS);
     const { sessionId, username, host, password, roles } = await request.json();
     if (!sessionId || !username) {
       return NextResponse.json({ error: 'Session ID and username required' }, { status: 400 });
@@ -156,7 +156,7 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.USERS);
+    await requirePermission(request, PERMISSIONS.USERS);
     const { sessionId, username, host } = await request.json();
     if (!sessionId || !username) {
       return NextResponse.json({ error: 'Session ID and username required' }, { status: 400 });
@@ -177,7 +177,7 @@ export async function DELETE(request: NextRequest) {
 // ── Change password ──
 export async function PATCH(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.USERS);
+    await requirePermission(request, PERMISSIONS.USERS);
     const { sessionId, username, host, password } = await request.json();
     if (!sessionId || !username || !password) {
       return NextResponse.json({ error: 'sessionId, username, password required' }, { status: 400 });

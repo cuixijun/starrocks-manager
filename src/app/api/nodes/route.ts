@@ -6,7 +6,7 @@ import { AuthError } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.NODES);
+    await requirePermission(request, PERMISSIONS.NODES);
     const sessionId = request.nextUrl.searchParams.get('sessionId');
     const refresh = request.nextUrl.searchParams.get('refresh') === 'true';
 
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (!refresh) {
-      const cached = getBlobCache('nodes_cache', sessionId);
+      const cached = await getBlobCache('nodes_cache', sessionId);
       if (cached) {
         return NextResponse.json({ ...(cached.data as object), cachedAt: cached.cachedAt, fromCache: true });
       }
@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
 
     const payload = { frontends, computeNodes, backends, brokers };
     let cachedAt: string | undefined;
-    try { cachedAt = setBlobCache('nodes_cache', sessionId, payload); } catch { /* non-fatal */ }
+    try { cachedAt = await setBlobCache('nodes_cache', sessionId, payload); } catch { /* non-fatal */ }
 
     return NextResponse.json({ ...payload, cachedAt, fromCache: false });
   } catch (err) {
@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.NODES);
+    await requirePermission(request, PERMISSIONS.NODES);
     const { sessionId, action, nodeType, host, port, brokerName } = await request.json();
     if (!sessionId || !action || !nodeType || !host || !port) {
       return NextResponse.json({ error: 'sessionId, action, nodeType, host, port required' }, { status: 400 });

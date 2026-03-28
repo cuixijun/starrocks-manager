@@ -7,7 +7,7 @@ import { AuthError } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.PIPES);
+    await requirePermission(request, PERMISSIONS.PIPES);
     const sessionId = request.nextUrl.searchParams.get('sessionId');
     const refresh = request.nextUrl.searchParams.get('refresh') === 'true';
 
@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (!refresh) {
-      const cached = getBlobCache('pipes_cache', sessionId);
+      const cached = await getBlobCache('pipes_cache', sessionId);
       if (cached) {
         return NextResponse.json({ pipes: cached.data, cachedAt: cached.cachedAt, fromCache: true });
       }
@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
     }));
 
     let cachedAt: string | undefined;
-    try { cachedAt = setBlobCache('pipes_cache', sessionId, allPipes); } catch { /* non-fatal */ }
+    try { cachedAt = await setBlobCache('pipes_cache', sessionId, allPipes); } catch { /* non-fatal */ }
 
     return NextResponse.json({ pipes: allPipes, cachedAt, fromCache: false });
   } catch (err) {
@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.PIPES);
+    await requirePermission(request, PERMISSIONS.PIPES);
     const { sessionId, action, dbName, pipeName } = await request.json();
     if (!sessionId || !pipeName) {
       return NextResponse.json({ error: 'Session ID and pipe name required' }, { status: 400 });

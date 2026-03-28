@@ -7,7 +7,7 @@ import { AuthError } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.TASKS);
+    await requirePermission(request, PERMISSIONS.TASKS);
     const sessionId = request.nextUrl.searchParams.get('sessionId');
     const type = request.nextUrl.searchParams.get('type') || 'tasks';
     const taskName = request.nextUrl.searchParams.get('taskName');
@@ -21,41 +21,41 @@ export async function GET(request: NextRequest) {
     if (type === 'task_runs' && taskName) {
       const compoundKey = `${sessionId}::${taskName}`;
       if (!refresh) {
-        const cached = getBlobCache('task_runs_cache', compoundKey);
+        const cached = await getBlobCache('task_runs_cache', compoundKey);
         if (cached) return NextResponse.json({ runs: cached.data, cachedAt: cached.cachedAt, fromCache: true });
       }
       const result = await executeQuery(sessionId,
         `SELECT * FROM information_schema.task_runs WHERE TASK_NAME = '${escapeSqlString(taskName)}' ORDER BY CREATE_TIME DESC LIMIT 30`,
         undefined, 'tasks'
       );
-      const ts = setBlobCache('task_runs_cache', compoundKey, result.rows);
+      const ts = await setBlobCache('task_runs_cache', compoundKey, result.rows);
       return NextResponse.json({ runs: result.rows, cachedAt: ts });
     }
 
     // Generic task_runs (used by Task Runs page)
     if (type === 'task_runs') {
       if (!refresh) {
-        const cached = getBlobCache('task_runs_all_cache', sessionId);
+        const cached = await getBlobCache('task_runs_all_cache', sessionId);
         if (cached) return NextResponse.json({ runs: cached.data, cachedAt: cached.cachedAt, fromCache: true });
       }
       const result = await executeQuery(sessionId,
         `SELECT * FROM information_schema.task_runs ORDER BY CREATE_TIME DESC LIMIT 200`,
         undefined, 'tasks'
       );
-      const ts = setBlobCache('task_runs_all_cache', sessionId, result.rows);
+      const ts = await setBlobCache('task_runs_all_cache', sessionId, result.rows);
       return NextResponse.json({ runs: result.rows, cachedAt: ts });
     }
 
     // Tasks list (used by Submit Task page) — exclude internal tasks
     if (!refresh) {
-      const cached = getBlobCache('tasks_cache', sessionId, 30 * 60 * 1000);
+      const cached = await getBlobCache('tasks_cache', sessionId, 30 * 60 * 1000);
       if (cached) return NextResponse.json({ tasks: cached.data, cachedAt: cached.cachedAt, fromCache: true });
     }
     const result = await executeQuery(sessionId,
       "SELECT * FROM information_schema.tasks WHERE TASK_NAME NOT LIKE 'optimize-%' AND TASK_NAME NOT LIKE 'mv-%' ORDER BY `DATABASE`, TASK_NAME, CREATE_TIME DESC",
       undefined, 'tasks'
     );
-    const ts = setBlobCache('tasks_cache', sessionId, result.rows);
+    const ts = await setBlobCache('tasks_cache', sessionId, result.rows);
     return NextResponse.json({ tasks: result.rows, cachedAt: ts, fromCache: false });
   } catch (err) {
     return NextResponse.json(
@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.TASKS);
+    await requirePermission(request, PERMISSIONS.TASKS);
     const { sessionId, action, taskName } = await request.json();
     if (!sessionId) {
       return NextResponse.json({ error: 'Session ID required' }, { status: 400 });

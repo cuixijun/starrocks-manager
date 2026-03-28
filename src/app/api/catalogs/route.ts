@@ -7,7 +7,7 @@ import { AuthError } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.CATALOGS);
+    await requirePermission(request, PERMISSIONS.CATALOGS);
     const sessionId = request.nextUrl.searchParams.get('sessionId');
     const refresh = request.nextUrl.searchParams.get('refresh') === 'true';
 
@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (!refresh) {
-      const cached = getBlobCache('catalogs_cache', sessionId);
+      const cached = await getBlobCache('catalogs_cache', sessionId);
       if (cached) {
         return NextResponse.json({ catalogs: cached.data, cachedAt: cached.cachedAt, fromCache: true });
       }
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
 
     let cachedAt: string | undefined;
     try {
-      cachedAt = setBlobCache('catalogs_cache', sessionId, catalogs);
+      cachedAt = await setBlobCache('catalogs_cache', sessionId, catalogs);
     } catch { /* non-fatal */ }
 
     return NextResponse.json({ catalogs, cachedAt, fromCache: false });
@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
 // POST: Create a new catalog by executing raw SQL
 export async function POST(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.CATALOGS);
+    await requirePermission(request, PERMISSIONS.CATALOGS);
     const { sessionId, sql } = await request.json();
     if (!sessionId || !sql) {
       return NextResponse.json({ error: 'sessionId and sql are required' }, { status: 400 });
@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
     await executeQuery(sessionId, sql, undefined, 'catalogs');
 
     // Invalidate cache
-    try { setBlobCache('catalogs_cache', sessionId, null as unknown as Record<string, unknown>[]); } catch { /* ignore */ }
+    try { await setBlobCache('catalogs_cache', sessionId, null as unknown as Record<string, unknown>[]); } catch { /* ignore */ }
 
     return NextResponse.json({ success: true });
   } catch (err) {
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
 // DELETE: Drop a catalog
 export async function DELETE(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.CATALOGS);
+    await requirePermission(request, PERMISSIONS.CATALOGS);
     const { sessionId, catalogName } = await request.json();
     if (!sessionId || !catalogName) {
       return NextResponse.json({ error: 'sessionId and catalogName are required' }, { status: 400 });
@@ -87,7 +87,7 @@ export async function DELETE(request: NextRequest) {
     await executeQuery(sessionId, `DROP CATALOG \`${escapeBacktickId(catalogName)}\``, undefined, 'catalogs');
 
     // Invalidate cache
-    try { setBlobCache('catalogs_cache', sessionId, null as unknown as Record<string, unknown>[]); } catch { /* ignore */ }
+    try { await setBlobCache('catalogs_cache', sessionId, null as unknown as Record<string, unknown>[]); } catch { /* ignore */ }
 
     return NextResponse.json({ success: true });
   } catch (err) {

@@ -3,6 +3,7 @@
 import bcrypt from 'bcryptjs';
 import { randomUUID } from 'crypto';
 import { getLocalDb } from './local-db';
+import { normalizeTimestamp } from './db-adapter';
 
 // ---- Types ----
 
@@ -55,62 +56,63 @@ export function verifyPassword(plain: string, hash: string): boolean {
 
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
-export function createSession(userId: number, clusterId?: number | null): string {
-  const db = getLocalDb();
+export async function createSession(userId: number, clusterId?: number | null): Promise<string> {
+  const db = await getLocalDb();
   const token = randomUUID();
-  const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString();
-  db.prepare(
-    'INSERT INTO sys_sessions (token, user_id, cluster_id, expires_at) VALUES (?, ?, ?, ?)'
-  ).run(token, userId, clusterId ?? null, expiresAt);
+  const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString().replace('T', ' ').slice(0, 19);
+  await db.run(
+    'INSERT INTO sys_sessions (token, user_id, cluster_id, expires_at) VALUES (?, ?, ?, ?)',
+    [token, userId, clusterId ?? null, expiresAt],
+  );
   return token;
 }
 
-export function validateSession(token: string): { user: SysUser; session: SysSession } | null {
-  const db = getLocalDb();
-  const session = db.prepare(
-    'SELECT * FROM sys_sessions WHERE token = ?'
-  ).get(token) as SysSession | undefined;
+export async function validateSession(token: string): Promise<{ user: SysUser; session: SysSession } | null> {
+  const db = await getLocalDb();
+  const session = await db.get<SysSession>(
+    'SELECT * FROM sys_sessions WHERE token = ?',
+    [token],
+  );
 
   if (!session) return null;
 
   // Check expiry
-  const expiresAt = session.expires_at.endsWith('Z') ? session.expires_at : session.expires_at.replace(' ', 'T') + 'Z';
+  const expiresAt = normalizeTimestamp(session.expires_at);
   if (new Date(expiresAt).getTime() < Date.now()) {
-    db.prepare('DELETE FROM sys_sessions WHERE token = ?').run(token);
+    await db.run('DELETE FROM sys_sessions WHERE token = ?', [token]);
     return null;
   }
 
-  const user = db.prepare(
-    'SELECT id, username, display_name, role, is_active, created_at, updated_at, last_login_at FROM sys_users WHERE id = ? AND is_active = 1'
-  ).get(session.user_id) as SysUser | undefined;
+  const user = await db.get<SysUser>(
+    'SELECT id, username, display_name, role, is_active, created_at, updated_at, last_login_at FROM sys_users WHERE id = ? AND is_active = 1',
+    [session.user_id],
+  );
 
   if (!user) {
-    db.prepare('DELETE FROM sys_sessions WHERE token = ?').run(token);
+    await db.run('DELETE FROM sys_sessions WHERE token = ?', [token]);
     return null;
   }
 
   return { user, session };
 }
 
-export function destroySession(token: string): void {
-  const db = getLocalDb();
-  db.prepare('DELETE FROM sys_sessions WHERE token = ?').run(token);
+export async function destroySession(token: string): Promise<void> {
+  const db = await getLocalDb();
+  await db.run('DELETE FROM sys_sessions WHERE token = ?', [token]);
 }
 
-export function switchCluster(token: string, clusterId: number): void {
-  const db = getLocalDb();
-  db.prepare('UPDATE sys_sessions SET cluster_id = ? WHERE token = ?').run(clusterId, token);
+export async function switchCluster(token: string, clusterId: number): Promise<void> {
+  const db = await getLocalDb();
+  await db.run('UPDATE sys_sessions SET cluster_id = ? WHERE token = ?', [clusterId, token]);
 }
 
 // ---- Auth helper for API routes ----
 
 export function getAuthFromRequest(request: Request): string | null {
-  // Try Authorization header first
   const authHeader = request.headers.get('Authorization');
   if (authHeader?.startsWith('Bearer ')) {
     return authHeader.slice(7);
   }
-  // Try cookie
   const cookieHeader = request.headers.get('Cookie');
   if (cookieHeader) {
     const match = cookieHeader.match(/sys_token=([^;]+)/);
@@ -119,20 +121,20 @@ export function getAuthFromRequest(request: Request): string | null {
   return null;
 }
 
-export function requireAuth(request: Request): { user: SysUser; session: SysSession } {
+export async function requireAuth(request: Request): Promise<{ user: SysUser; session: SysSession }> {
   const token = getAuthFromRequest(request);
   if (!token) {
     throw new AuthError('未登录', 401);
   }
-  const result = validateSession(token);
+  const result = await validateSession(token);
   if (!result) {
     throw new AuthError('会话已过期，请重新登录', 401);
   }
   return result;
 }
 
-export function requireRole(request: Request, ...roles: SysRole[]): { user: SysUser; session: SysSession } {
-  const result = requireAuth(request);
+export async function requireRole(request: Request, ...roles: SysRole[]): Promise<{ user: SysUser; session: SysSession }> {
+  const result = await requireAuth(request);
   if (!roles.includes(result.user.role)) {
     throw new AuthError('权限不足', 403);
   }
@@ -149,21 +151,22 @@ export class AuthError extends Error {
 
 // ---- Cluster access helpers ----
 
-export function getUserClusters(userId: number, role: SysRole): ClusterInfo[] {
-  const db = getLocalDb();
+export async function getUserClusters(userId: number, role: SysRole): Promise<ClusterInfo[]> {
+  const db = await getLocalDb();
   if (role === 'admin') {
-    // Admin sees all clusters
-    return db.prepare('SELECT * FROM clusters WHERE is_active = 1 ORDER BY name').all() as ClusterInfo[];
+    return db.all<ClusterInfo>('SELECT * FROM clusters WHERE is_active = 1 ORDER BY name');
   }
-  return db.prepare(`
-    SELECT c.* FROM clusters c
-    INNER JOIN user_cluster_access uca ON c.id = uca.cluster_id
-    WHERE uca.user_id = ? AND c.is_active = 1
-    ORDER BY c.name
-  `).all(userId) as ClusterInfo[];
+  return db.all<ClusterInfo>(
+    `SELECT c.* FROM clusters c
+     INNER JOIN user_cluster_access uca ON c.id = uca.cluster_id
+     WHERE uca.user_id = ? AND c.is_active = 1
+     ORDER BY c.name`,
+    [userId],
+  );
 }
 
-export function getCluster(clusterId: number): ClusterInfo | null {
-  const db = getLocalDb();
-  return db.prepare('SELECT * FROM clusters WHERE id = ? AND is_active = 1').get(clusterId) as ClusterInfo | null;
+export async function getCluster(clusterId: number): Promise<ClusterInfo | null> {
+  const db = await getLocalDb();
+  const row = await db.get<ClusterInfo>('SELECT * FROM clusters WHERE id = ? AND is_active = 1', [clusterId]);
+  return row || null;
 }

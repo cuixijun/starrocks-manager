@@ -44,7 +44,7 @@ export interface PermissionMeta {
   label: string;
   group: string;
   description: string;
-  order: number; // display order within group
+  order: number;
 }
 
 export const PERMISSION_GROUPS: { key: string; label: string; order: number }[] = [
@@ -84,85 +84,45 @@ export const PERMISSION_META: Record<string, PermissionMeta> = {
 
 export const DEFAULT_PERMISSIONS: Record<string, Record<string, boolean>> = {
   editor: {
-    dashboard: true,
-    databases: true,
-    catalogs: true,
-    materialized_views: true,
-    query: true,
-    routine_load: true,
-    broker_load: true,
-    pipes: true,
-    task_manager: true,
-    tasks: true,
-    users: false,
-    roles: false,
-    privileges: false,
-    nodes: false,
-    resource_groups: true,
-    functions: true,
-    variables: true,
-    cluster_manager: false,
-    sys_users: false,
-    audit: false,
-    sys_permissions: false,
+    dashboard: true, databases: true, catalogs: true, materialized_views: true,
+    query: true, routine_load: true, broker_load: true, pipes: true,
+    task_manager: true, tasks: true, users: false, roles: false, privileges: false,
+    nodes: false, resource_groups: true, functions: true, variables: true,
+    cluster_manager: false, sys_users: false, audit: false, sys_permissions: false,
   },
   viewer: {
-    dashboard: true,
-    databases: true,
-    catalogs: true,
-    materialized_views: true,
-    query: false,
-    routine_load: true,
-    broker_load: true,
-    pipes: true,
-    task_manager: true,
-    tasks: true,
-    users: false,
-    roles: false,
-    privileges: false,
-    nodes: false,
-    resource_groups: false,
-    functions: true,
-    variables: true,
-    cluster_manager: false,
-    sys_users: false,
-    audit: false,
-    sys_permissions: false,
+    dashboard: true, databases: true, catalogs: true, materialized_views: true,
+    query: false, routine_load: true, broker_load: true, pipes: true,
+    task_manager: true, tasks: true, users: false, roles: false, privileges: false,
+    nodes: false, resource_groups: false, functions: true, variables: true,
+    cluster_manager: false, sys_users: false, audit: false, sys_permissions: false,
   },
 };
 
 // ── Runtime helpers ──────────────────────────────────────────────────
 
-/**
- * Check if a role has a specific permission.
- * Admin always returns true.
- */
-export function hasPermission(role: SysRole, permission: string): boolean {
+export async function hasPermission(role: SysRole, permission: string): Promise<boolean> {
   if (role === 'admin') return true;
 
-  const db = getLocalDb();
-  const row = db.prepare(
-    'SELECT granted FROM sys_role_permissions WHERE role = ? AND permission = ?'
-  ).get(role, permission) as { granted: number } | undefined;
+  const db = await getLocalDb();
+  const row = await db.get<{ granted: number }>(
+    'SELECT granted FROM sys_role_permissions WHERE role = ? AND permission = ?',
+    [role, permission],
+  );
 
   if (row !== undefined) return row.granted === 1;
-
-  // Fallback to defaults if not in DB
   return DEFAULT_PERMISSIONS[role]?.[permission] ?? false;
 }
 
-/**
- * Get all granted permissions for a role.
- */
-export function getPermissionsForRole(role: SysRole): string[] {
+export async function getPermissionsForRole(role: SysRole): Promise<string[]> {
   if (role === 'admin') return Object.values(PERMISSIONS);
 
-  const db = getLocalDb();
-  const rows = db.prepare(
-    'SELECT permission, granted FROM sys_role_permissions WHERE role = ?'
-  ).all(role) as { permission: string; granted: number }[];
+  const db = await getLocalDb();
+  const rows = await db.all<{ permission: string; granted: number }>(
+    'SELECT permission, granted FROM sys_role_permissions WHERE role = ?',
+    [role],
+  );
 
-  // Start with defaults, override with DB values
   const perms = { ...(DEFAULT_PERMISSIONS[role] || {}) };
   for (const row of rows) {
     perms[row.permission] = row.granted === 1;
@@ -173,12 +133,8 @@ export function getPermissionsForRole(role: SysRole): string[] {
     .map(([perm]) => perm);
 }
 
-/**
- * Get all permissions for all roles (for management UI).
- * Returns: { role: { permission: boolean } }
- */
-export function getAllRolePermissions(): Record<string, Record<string, boolean>> {
-  const db = getLocalDb();
+export async function getAllRolePermissions(): Promise<Record<string, Record<string, boolean>>> {
+  const db = await getLocalDb();
 
   const result: Record<string, Record<string, boolean>> = {
     admin: {},
@@ -186,15 +142,13 @@ export function getAllRolePermissions(): Record<string, Record<string, boolean>>
     viewer: { ...(DEFAULT_PERMISSIONS.viewer || {}) },
   };
 
-  // Admin gets all
   for (const perm of Object.values(PERMISSIONS)) {
     result.admin[perm] = true;
   }
 
-  // Load DB overrides for editor/viewer
-  const rows = db.prepare(
-    'SELECT role, permission, granted FROM sys_role_permissions'
-  ).all() as { role: string; permission: string; granted: number }[];
+  const rows = await db.all<{ role: string; permission: string; granted: number }>(
+    'SELECT role, permission, granted FROM sys_role_permissions',
+  );
 
   for (const row of rows) {
     if (result[row.role]) {
@@ -205,47 +159,38 @@ export function getAllRolePermissions(): Record<string, Record<string, boolean>>
   return result;
 }
 
-/**
- * Update permissions for a role. Only editor/viewer can be modified.
- */
-export function updateRolePermissions(role: string, permissions: Record<string, boolean>): void {
+export async function updateRolePermissions(role: string, permissions: Record<string, boolean>): Promise<void> {
   if (role === 'admin') throw new Error('admin 权限不可修改');
   if (!['editor', 'viewer'].includes(role)) throw new Error('无效角色');
 
-  const db = getLocalDb();
-  const upsert = db.prepare(`
-    INSERT INTO sys_role_permissions (role, permission, granted)
-    VALUES (?, ?, ?)
-    ON CONFLICT(role, permission)
-    DO UPDATE SET granted = excluded.granted
-  `);
+  const db = await getLocalDb();
+  const upsertSql = db.upsertSql(
+    'sys_role_permissions',
+    ['role', 'permission', 'granted'],
+    ['role', 'permission'],
+    ['granted'],
+  );
 
-  const txn = db.transaction(() => {
+  await db.withTransaction(async (tx) => {
     for (const [permission, granted] of Object.entries(permissions)) {
-      upsert.run(role, permission, granted ? 1 : 0);
+      await tx.run(upsertSql, [role, permission, granted ? 1 : 0]);
     }
   });
-  txn();
 }
 
-/**
- * Reset a role's permissions to defaults.
- */
-export function resetRolePermissions(role: string): void {
+export async function resetRolePermissions(role: string): Promise<void> {
   if (role === 'admin') throw new Error('admin 权限不可修改');
 
-  const db = getLocalDb();
-  db.prepare('DELETE FROM sys_role_permissions WHERE role = ?').run(role);
+  const db = await getLocalDb();
+  await db.run('DELETE FROM sys_role_permissions WHERE role = ?', [role]);
 }
 
 // ── API route middleware ─────────────────────────────────────────────
 
-/**
- * Require auth + specific permission. Admin always passes.
- */
-export function requirePermission(request: Request, permission: string): { user: SysUser; session: SysSession } {
-  const result = requireAuth(request);
-  if (!hasPermission(result.user.role, permission)) {
+export async function requirePermission(request: Request, permission: string): Promise<{ user: SysUser; session: SysSession }> {
+  const result = await requireAuth(request);
+  const allowed = await hasPermission(result.user.role, permission);
+  if (!allowed) {
     throw new AuthError('权限不足', 403);
   }
   return result;

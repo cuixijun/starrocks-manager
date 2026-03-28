@@ -7,18 +7,20 @@ import type { ClusterInfo } from '@/lib/auth';
 // GET /api/clusters — list clusters (filtered by user access)
 export async function GET(request: NextRequest) {
   try {
-    const { user } = requireAuth(request);
-    const clusters = getUserClusters(user.id, user.role);
+    const { user } = await requireAuth(request);
+    const clusters = await getUserClusters(user.id, user.role);
 
     // For admin, also include user access counts
     if (user.role === 'admin') {
-      const db = getLocalDb();
-      const enriched = clusters.map(c => {
-        const accessCount = db.prepare(
-          'SELECT COUNT(*) as cnt FROM user_cluster_access WHERE cluster_id = ?'
-        ).get(c.id) as { cnt: number };
-        return { ...c, password: '******', userCount: accessCount.cnt };
-      });
+      const db = await getLocalDb();
+      const enriched = [];
+      for (const c of clusters) {
+        const accessCount = await db.get<{ cnt: number }>(
+          'SELECT COUNT(*) as cnt FROM user_cluster_access WHERE cluster_id = ?',
+          [c.id],
+        );
+        enriched.push({ ...c, password: '******', userCount: accessCount?.cnt || 0 });
+      }
       return NextResponse.json({ clusters: enriched });
     }
 
@@ -37,7 +39,7 @@ export async function GET(request: NextRequest) {
 // POST /api/clusters — create cluster (admin only)
 export async function POST(request: NextRequest) {
   try {
-    const { user: operator } = requireRole(request, 'admin');
+    const { user: operator } = await requireRole(request, 'admin');
     const body = await request.json();
     const { action, name, host, port, username, password, default_db, description } = body;
 
@@ -54,31 +56,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '请填写集群名称、主机地址和用户名' }, { status: 400 });
     }
 
-    const db = getLocalDb();
+    const db = await getLocalDb();
 
     // Check duplicate name
-    const existing = db.prepare('SELECT id FROM clusters WHERE name = ?').get(name);
+    const existing = await db.get<{ id: number }>('SELECT id FROM clusters WHERE name = ?', [name]);
     if (existing) {
       return NextResponse.json({ error: `集群 "${name}" 已存在` }, { status: 409 });
     }
 
-    const result = db.prepare(
-      'INSERT INTO clusters (name, host, port, username, password, default_db, description) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).run(name, host, port || 9030, username, password || '', default_db || '', description || '');
+    const result = await db.run(
+      'INSERT INTO clusters (name, host, port, username, password, default_db, description) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [name, host, port || 9030, username, password || '', default_db || '', description || ''],
+    );
 
     // Audit: cluster.create
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || '';
-    recordAuditLog({
+    await recordAuditLog({
       userId: operator.id, username: operator.username,
       action: 'cluster.create', category: 'cluster', level: 'basic',
       target: `集群 ${name}`,
-      detail: { clusterId: result.lastInsertRowid, host, port: port || 9030 },
+      detail: { clusterId: result.insertId, host, port: port || 9030 },
       ipAddress: ip,
     });
 
     return NextResponse.json({
       success: true,
-      cluster: { id: result.lastInsertRowid, name, host, port: port || 9030 },
+      cluster: { id: result.insertId, name, host, port: port || 9030 },
     });
   } catch (err) {
     const status = err instanceof AuthError ? err.status : 500;
@@ -89,26 +92,26 @@ export async function POST(request: NextRequest) {
 // PUT /api/clusters — update cluster (admin only)
 export async function PUT(request: NextRequest) {
   try {
-    const { user: operator } = requireRole(request, 'admin');
+    const { user: operator } = await requireRole(request, 'admin');
     const { id, name, host, port, username, password, default_db, description, is_active } = await request.json();
 
     if (!id) {
       return NextResponse.json({ error: 'Cluster ID required' }, { status: 400 });
     }
 
-    const db = getLocalDb();
-    const cluster = db.prepare('SELECT * FROM clusters WHERE id = ?').get(id) as ClusterInfo | undefined;
+    const db = await getLocalDb();
+    const cluster = await db.get<ClusterInfo>('SELECT * FROM clusters WHERE id = ?', [id]);
     if (!cluster) {
       return NextResponse.json({ error: '集群不存在' }, { status: 404 });
     }
 
-    db.prepare(`
+    await db.run(`
       UPDATE clusters SET
         name = ?, host = ?, port = ?, username = ?,
         password = ?, default_db = ?, description = ?,
         is_active = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `).run(
+    `, [
       name ?? cluster.name,
       host ?? cluster.host,
       port ?? cluster.port,
@@ -118,11 +121,11 @@ export async function PUT(request: NextRequest) {
       description ?? cluster.description,
       is_active !== undefined ? is_active : cluster.is_active,
       id,
-    );
+    ]);
 
     // Audit: cluster.update
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || '';
-    recordAuditLog({
+    await recordAuditLog({
       userId: operator.id, username: operator.username,
       action: 'cluster.update', category: 'cluster', level: 'basic',
       target: `集群 ${cluster.name}`,
@@ -140,20 +143,20 @@ export async function PUT(request: NextRequest) {
 // DELETE /api/clusters — delete cluster (admin only)
 export async function DELETE(request: NextRequest) {
   try {
-    const { user: operator } = requireRole(request, 'admin');
+    const { user: operator } = await requireRole(request, 'admin');
     const { id } = await request.json();
 
     if (!id) {
       return NextResponse.json({ error: 'Cluster ID required' }, { status: 400 });
     }
 
-    const db = getLocalDb();
-    const cluster = db.prepare('SELECT name FROM clusters WHERE id = ?').get(id) as { name: string } | undefined;
-    db.prepare('DELETE FROM clusters WHERE id = ?').run(id);
+    const db = await getLocalDb();
+    const cluster = await db.get<{ name: string }>('SELECT name FROM clusters WHERE id = ?', [id]);
+    await db.run('DELETE FROM clusters WHERE id = ?', [id]);
 
     // Audit: cluster.delete
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || '';
-    recordAuditLog({
+    await recordAuditLog({
       userId: operator.id, username: operator.username,
       action: 'cluster.delete', category: 'cluster', level: 'basic',
       target: `集群 ${cluster?.name || id}`,

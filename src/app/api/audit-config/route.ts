@@ -16,9 +16,9 @@ const VALID_LEVELS = new Set<string>(['off', 'basic', 'standard', 'full']);
 // GET /api/audit-config — get current audit config (all authenticated users)
 export async function GET(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.AUDIT);
+    await requirePermission(request, PERMISSIONS.AUDIT);
 
-    const level = getAuditLevel();
+    const level = await getAuditLevel();
     return NextResponse.json({ level, levelOptions: LEVEL_OPTIONS });
   } catch (err) {
     const status = err instanceof AuthError ? err.status : 500;
@@ -29,15 +29,15 @@ export async function GET(request: NextRequest) {
 // PUT /api/audit-config — update audit level (admin only)
 export async function PUT(request: NextRequest) {
   try {
-    const { user } = requireRole(request, 'admin');
+    const { user } = await requireRole(request, 'admin');
     const { level } = await request.json();
 
     if (!level || !VALID_LEVELS.has(level)) {
       return NextResponse.json({ error: '无效的审计级别' }, { status: 400 });
     }
 
-    const oldLevel = getAuditLevel();
-    setAuditLevel(level as AuditLevel);
+    const oldLevel = await getAuditLevel();
+    await setAuditLevel(level as AuditLevel);
 
     // Get client IP
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
@@ -45,7 +45,7 @@ export async function PUT(request: NextRequest) {
       || '';
 
     // Record audit log for this config change (always, regardless of level)
-    recordAuditLog({
+    await recordAuditLog({
       userId: user.id,
       username: user.username,
       action: 'config.audit_level_change',

@@ -7,7 +7,7 @@ import { AuthError } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.FUNCTIONS);
+    await requirePermission(request, PERMISSIONS.FUNCTIONS);
     const sessionId = request.nextUrl.searchParams.get('sessionId');
     const refresh = request.nextUrl.searchParams.get('refresh') === 'true';
 
@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (!refresh) {
-      const cached = getBlobCache('functions_cache', sessionId);
+      const cached = await getBlobCache('functions_cache', sessionId);
       if (cached) {
         return NextResponse.json({ functions: cached.data, cachedAt: cached.cachedAt, fromCache: true });
       }
@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
 
     let cachedAt: string | undefined;
     try {
-      cachedAt = setBlobCache('functions_cache', sessionId, allFunctions);
+      cachedAt = await setBlobCache('functions_cache', sessionId, allFunctions);
     } catch { /* non-fatal */ }
 
     return NextResponse.json({ functions: allFunctions, cachedAt, fromCache: false });

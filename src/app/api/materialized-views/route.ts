@@ -7,7 +7,7 @@ import { AuthError } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.MV);
+    await requirePermission(request, PERMISSIONS.MV);
     const sessionId = request.nextUrl.searchParams.get('sessionId');
     const refresh = request.nextUrl.searchParams.get('refresh') === 'true';
 
@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (!refresh) {
-      const cached = getBlobCache('materialized_views_cache', sessionId);
+      const cached = await getBlobCache('materialized_views_cache', sessionId);
       if (cached) {
         return NextResponse.json({ views: cached.data, cachedAt: cached.cachedAt, fromCache: true });
       }
@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
 
     let cachedAt: string | undefined;
     try {
-      cachedAt = setBlobCache('materialized_views_cache', sessionId, views);
+      cachedAt = await setBlobCache('materialized_views_cache', sessionId, views);
     } catch { /* non-fatal */ }
 
     return NextResponse.json({ views, cachedAt, fromCache: false });
@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.MV);
+    await requirePermission(request, PERMISSIONS.MV);
     const body = await request.json();
     const { sessionId, action, dbName, mvName } = body;
     if (!sessionId) {
@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
       if (!fullName) return NextResponse.json({ error: 'MV name required' }, { status: 400 });
       await executeQuery(sessionId, `DROP MATERIALIZED VIEW ${fullName}`, undefined, 'materialized-views');
       // Invalidate cache
-      try { setBlobCache('materialized_views_cache', sessionId, null as unknown as Record<string, unknown>[]); } catch { /* ignore */ }
+      try { await setBlobCache('materialized_views_cache', sessionId, null as unknown as Record<string, unknown>[]); } catch { /* ignore */ }
       return NextResponse.json({ success: true });
     }
 
@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
       const active = body.active === true || body.active === 'true';
       await executeQuery(sessionId, `ALTER MATERIALIZED VIEW ${fullName} ${active ? 'ACTIVE' : 'INACTIVE'}`, undefined, 'materialized-views');
       // Invalidate cache
-      try { setBlobCache('materialized_views_cache', sessionId, null as unknown as Record<string, unknown>[]); } catch { /* ignore */ }
+      try { await setBlobCache('materialized_views_cache', sessionId, null as unknown as Record<string, unknown>[]); } catch { /* ignore */ }
       return NextResponse.json({ success: true });
     }
 
@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
       const interval = body.interval; // e.g. "INTERVAL 1 HOUR"
       if (!interval) return NextResponse.json({ error: 'interval is required' }, { status: 400 });
       await executeQuery(sessionId, `ALTER MATERIALIZED VIEW ${fullName} REFRESH ASYNC EVERY(${interval})`, undefined, 'materialized-views');
-      try { setBlobCache('materialized_views_cache', sessionId, null as unknown as Record<string, unknown>[]); } catch { /* ignore */ }
+      try { await setBlobCache('materialized_views_cache', sessionId, null as unknown as Record<string, unknown>[]); } catch { /* ignore */ }
       return NextResponse.json({ success: true });
     }
 
@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
       const resourceGroup = body.resourceGroup;
       if (!resourceGroup) return NextResponse.json({ error: 'resourceGroup is required' }, { status: 400 });
       await executeQuery(sessionId, `ALTER MATERIALIZED VIEW ${fullName} SET ('resource_group' = '${escapeSqlString(resourceGroup)}')`, undefined, 'materialized-views');
-      try { setBlobCache('materialized_views_cache', sessionId, null as unknown as Record<string, unknown>[]); } catch { /* ignore */ }
+      try { await setBlobCache('materialized_views_cache', sessionId, null as unknown as Record<string, unknown>[]); } catch { /* ignore */ }
       return NextResponse.json({ success: true });
     }
 
@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'SQL must not contain semicolons' }, { status: 400 });
       }
       await executeQuery(sessionId, sql, undefined, 'materialized-views');
-      try { setBlobCache('materialized_views_cache', sessionId, null as unknown as Record<string, unknown>[]); } catch { /* ignore */ }
+      try { await setBlobCache('materialized_views_cache', sessionId, null as unknown as Record<string, unknown>[]); } catch { /* ignore */ }
       return NextResponse.json({ success: true });
     }
 

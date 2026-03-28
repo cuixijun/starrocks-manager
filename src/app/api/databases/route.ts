@@ -7,7 +7,7 @@ import { requirePermission, PERMISSIONS } from '@/lib/permissions';
 
 export async function GET(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.DATABASES);
+    await requirePermission(request, PERMISSIONS.DATABASES);
     const sessionId = request.nextUrl.searchParams.get('sessionId');
     const refresh = request.nextUrl.searchParams.get('refresh') === 'true';
 
@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
 
     // ── Serve from cache unless explicitly refreshing ──
     if (!refresh) {
-      const cached = getDbCache(sessionId);
+      const cached = await getDbCache(sessionId);
       if (cached.length > 0) {
         return NextResponse.json({
           databases: cached.map(c => ({
@@ -101,8 +101,8 @@ export async function GET(request: NextRequest) {
     // Persist to SQLite cache
     let cachedAt: string | undefined;
     try {
-      upsertDbCache(sessionId, dbDetails.map(d => ({ name: d.name, tableCount: d.tableCount, viewCount: d.viewCount, mvCount: d.mvCount })));
-      const cached = getDbCache(sessionId);
+      await upsertDbCache(sessionId, dbDetails.map(d => ({ name: d.name, tableCount: d.tableCount, viewCount: d.viewCount, mvCount: d.mvCount })));
+      const cached = await getDbCache(sessionId);
       cachedAt = cached[0]?.cached_at;
     } catch {
       // non-fatal
@@ -120,7 +120,7 @@ export async function GET(request: NextRequest) {
 // ── CREATE DATABASE ──
 export async function POST(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.DATABASES);
+    await requirePermission(request, PERMISSIONS.DATABASES);
     const { sessionId, name } = await request.json();
     if (!sessionId || !name) {
       return NextResponse.json({ error: 'sessionId and name are required' }, { status: 400 });
@@ -137,9 +137,9 @@ export async function POST(request: NextRequest) {
 
     // Audit: database.create
     const token = getAuthFromRequest(request);
-    const sess = token ? validateSession(token) : null;
+    const sess = token ? await validateSession(token) : null;
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || '';
-    recordAuditLog({
+    await recordAuditLog({
       userId: sess?.user?.id, username: sess?.user?.username || 'unknown',
       action: 'database.create', category: 'query', level: 'basic',
       target: `数据库 ${name}`, ipAddress: ip,
@@ -157,7 +157,7 @@ export async function POST(request: NextRequest) {
 // ── DROP DATABASE ──
 export async function DELETE(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.DATABASES);
+    await requirePermission(request, PERMISSIONS.DATABASES);
     const { sessionId, name, force } = await request.json();
     if (!sessionId || !name) {
       return NextResponse.json({ error: 'sessionId and name are required' }, { status: 400 });
@@ -175,9 +175,9 @@ export async function DELETE(request: NextRequest) {
 
     // Audit: database.drop
     const token = getAuthFromRequest(request);
-    const sess = token ? validateSession(token) : null;
+    const sess = token ? await validateSession(token) : null;
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || '';
-    recordAuditLog({
+    await recordAuditLog({
       userId: sess?.user?.id, username: sess?.user?.username || 'unknown',
       action: 'database.drop', category: 'query', level: 'basic',
       target: `数据库 ${name}`, detail: { force: !!force }, ipAddress: ip,

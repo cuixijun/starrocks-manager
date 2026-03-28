@@ -42,7 +42,7 @@ function mapColumns(row: Record<string, unknown>): Record<string, unknown> {
 
 export async function GET(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.BROKER_LOAD);
+    await requirePermission(request, PERMISSIONS.BROKER_LOAD);
     const sessionId = request.nextUrl.searchParams.get('sessionId');
     const refresh = request.nextUrl.searchParams.get('refresh') === 'true';
 
@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (!refresh) {
-      const cached = getBlobCache('broker_load_cache', sessionId);
+      const cached = await getBlobCache('broker_load_cache', sessionId);
       if (cached) {
         return NextResponse.json({ loads: cached.data, cachedAt: cached.cachedAt, fromCache: true });
       }
@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
     });
 
     let cachedAt: string | undefined;
-    try { cachedAt = setBlobCache('broker_load_cache', sessionId, allLoads); } catch { /* non-fatal */ }
+    try { cachedAt = await setBlobCache('broker_load_cache', sessionId, allLoads); } catch { /* non-fatal */ }
 
     return NextResponse.json({ loads: allLoads, cachedAt, fromCache: false });
   } catch (err) {
@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.BROKER_LOAD);
+    await requirePermission(request, PERMISSIONS.BROKER_LOAD);
     const { sessionId, action, dbName, label } = await request.json();
     if (!sessionId) {
       return NextResponse.json({ error: 'Session ID required' }, { status: 400 });

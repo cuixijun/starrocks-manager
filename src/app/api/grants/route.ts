@@ -20,7 +20,7 @@ import { requirePermission, PERMISSIONS } from '@/lib/permissions';
  */
 export async function POST(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.PRIVILEGES);
+    await requirePermission(request, PERMISSIONS.PRIVILEGES);
     const body = await request.json();
     const { sessionId, action, grantee, privilege, objectType, objectName, roleName } = body;
 
@@ -69,9 +69,9 @@ export async function POST(request: NextRequest) {
 
     // Audit: permission change
     const token = getAuthFromRequest(request);
-    const sess = token ? validateSession(token) : null;
+    const sess = token ? await validateSession(token) : null;
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || '';
-    recordAuditLog({
+    await recordAuditLog({
       userId: sess?.user?.id, username: sess?.user?.username || 'unknown',
       action: `permission.${action}`, category: 'permission', level: 'basic',
       target: grantee,

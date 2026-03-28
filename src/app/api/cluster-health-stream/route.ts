@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: NextRequest) {
   // Verify auth
   const token = getAuthFromRequest(request);
-  if (!token || !validateSession(token)) {
+  if (!token || !await validateSession(token)) {
     return new Response('Unauthorized', { status: 401 });
   }
 

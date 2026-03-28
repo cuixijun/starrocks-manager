@@ -47,7 +47,7 @@ function mapColumns(row: Record<string, unknown>): Record<string, unknown> {
 
 export async function GET(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.ROUTINE_LOAD);
+    await requirePermission(request, PERMISSIONS.ROUTINE_LOAD);
     const sessionId = request.nextUrl.searchParams.get('sessionId');
     const refresh = request.nextUrl.searchParams.get('refresh') === 'true';
 
@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (!refresh) {
-      const cached = getBlobCache('routine_load_cache', sessionId);
+      const cached = await getBlobCache('routine_load_cache', sessionId);
       if (cached) {
         return NextResponse.json({ jobs: cached.data, cachedAt: cached.cachedAt, fromCache: true });
       }
@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
     });
 
     let cachedAt: string | undefined;
-    try { cachedAt = setBlobCache('routine_load_cache', sessionId, allJobs); } catch { /* non-fatal */ }
+    try { cachedAt = await setBlobCache('routine_load_cache', sessionId, allJobs); } catch { /* non-fatal */ }
 
     return NextResponse.json({ jobs: allJobs, cachedAt, fromCache: false });
   } catch (err) {
@@ -94,7 +94,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.ROUTINE_LOAD);
+    await requirePermission(request, PERMISSIONS.ROUTINE_LOAD);
     const { sessionId, action, dbName, jobName } = await request.json();
     if (!sessionId || !jobName) {
       return NextResponse.json({ error: 'Session ID and job name required' }, { status: 400 });

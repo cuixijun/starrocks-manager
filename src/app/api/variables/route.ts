@@ -7,7 +7,7 @@ import { AuthError } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.VARIABLES);
+    await requirePermission(request, PERMISSIONS.VARIABLES);
     const sessionId = request.nextUrl.searchParams.get('sessionId');
     const refresh = request.nextUrl.searchParams.get('refresh') === 'true';
     const scope = request.nextUrl.searchParams.get('scope') || 'session'; // session | global
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
     const cacheKey = `${scope}_${sessionId}`;
 
     if (!refresh) {
-      const cached = getBlobCache('variables_cache', cacheKey);
+      const cached = await getBlobCache('variables_cache', cacheKey);
       if (cached) {
         return NextResponse.json({ variables: cached.data, cachedAt: cached.cachedAt, fromCache: true });
       }
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
 
     let cachedAt: string | undefined;
     try {
-      cachedAt = setBlobCache('variables_cache', cacheKey, variables);
+      cachedAt = await setBlobCache('variables_cache', cacheKey, variables);
     } catch { /* non-fatal */ }
 
     return NextResponse.json({ variables, cachedAt, fromCache: false });
@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.VARIABLES);
+    await requirePermission(request, PERMISSIONS.VARIABLES);
     const { sessionId, name, value, global } = await request.json();
     if (!sessionId || !name) {
       return NextResponse.json({ error: 'Session ID and variable name required' }, { status: 400 });

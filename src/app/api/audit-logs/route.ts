@@ -6,7 +6,7 @@ import { queryAuditLogs } from '@/lib/local-db';
 // GET /api/audit-logs — query audit logs (all authenticated users)
 export async function GET(request: NextRequest) {
   try {
-    requirePermission(request, PERMISSIONS.AUDIT);
+    await requirePermission(request, PERMISSIONS.AUDIT);
 
     const params = request.nextUrl.searchParams;
     const page = parseInt(params.get('page') || '1', 10);
@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
     const startDate = params.get('startDate') || undefined;
     const endDate = params.get('endDate') || undefined;
 
-    const result = queryAuditLogs({ page, pageSize, category, username, action, startDate, endDate });
+    const result = await queryAuditLogs({ page, pageSize, category, username, action, startDate, endDate });
 
     return NextResponse.json({
       logs: result.logs,

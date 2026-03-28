@@ -38,10 +38,11 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: '验证码错误或已过期，请刷新重试' }, { status: 400 });
       }
 
-      const db = getLocalDb();
-      const user = db.prepare(
-        'SELECT * FROM sys_users WHERE username = ?'
-      ).get(username) as SysUserRow | undefined;
+      const db = await getLocalDb();
+      const user = await db.get<SysUserRow>(
+        'SELECT * FROM sys_users WHERE username = ?',
+        [username],
+      );
 
       if (!user) {
         return NextResponse.json({ error: '用户名或密码错误' }, { status: 401 });
@@ -56,18 +57,18 @@ export async function POST(request: NextRequest) {
       }
 
       // Get user's accessible clusters
-      const clusters = getUserClusters(user.id, user.role);
+      const clusters = await getUserClusters(user.id, user.role);
       const defaultCluster = clusters.length > 0 ? clusters[0].id : null;
 
       // Create session
-      const token = createSession(user.id, defaultCluster);
+      const token = await createSession(user.id, defaultCluster);
 
       // Update last login time
-      db.prepare('UPDATE sys_users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?').run(user.id);
+      await db.run('UPDATE sys_users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?', [user.id]);
 
       // Audit: login
       const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || '';
-      recordAuditLog({
+      await recordAuditLog({
         userId: user.id, username: user.username,
         action: 'auth.login', category: 'auth', level: 'standard',
         target: user.username, ipAddress: ip,
@@ -102,14 +103,14 @@ export async function POST(request: NextRequest) {
       const token = getAuthFromRequest(request);
       let logoutUser: string | undefined;
       if (token) {
-        const sess = validateSession(token);
+        const sess = await validateSession(token);
         logoutUser = sess?.user?.username;
-        destroySession(token);
+        await destroySession(token);
       }
       // Audit: logout
       if (logoutUser) {
         const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || '';
-        recordAuditLog({
+        await recordAuditLog({
           userId: null, username: logoutUser,
           action: 'auth.logout', category: 'auth', level: 'standard',
           target: logoutUser, ipAddress: ip,
@@ -126,7 +127,7 @@ export async function POST(request: NextRequest) {
       if (!token) {
         return NextResponse.json({ error: '未登录' }, { status: 401 });
       }
-      const result = validateSession(token);
+      const result = await validateSession(token);
       if (!result) {
         return NextResponse.json({ error: '会话过期，请重新登录' }, { status: 401 });
       }
@@ -142,8 +143,8 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: pwdErr }, { status: 400 });
       }
 
-      const db = getLocalDb();
-      const user = db.prepare('SELECT * FROM sys_users WHERE id = ?').get(result.user.id) as SysUserRow | undefined;
+      const db = await getLocalDb();
+      const user = await db.get<SysUserRow>('SELECT * FROM sys_users WHERE id = ?', [result.user.id]);
       if (!user) {
         return NextResponse.json({ error: '用户不存在' }, { status: 404 });
       }
@@ -155,7 +156,7 @@ export async function POST(request: NextRequest) {
 
       // Update password
       const newHash = hashPassword(newPassword);
-      db.prepare('UPDATE sys_users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newHash, user.id);
+      await db.run('UPDATE sys_users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [newHash, user.id]);
 
       return NextResponse.json({ success: true });
     }
@@ -177,7 +178,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ authenticated: false }, { status: 401 });
     }
 
-    const result = validateSession(token);
+    const result = await validateSession(token);
     if (!result) {
       const response = NextResponse.json({ authenticated: false }, { status: 401 });
       response.cookies.delete('sys_token');
@@ -185,7 +186,7 @@ export async function GET(request: NextRequest) {
     }
 
     const { user, session } = result;
-    const clusters = getUserClusters(user.id, user.role);
+    const clusters = await getUserClusters(user.id, user.role);
 
     // Get active cluster details
     let activeCluster = null;
