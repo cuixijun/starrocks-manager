@@ -3,7 +3,7 @@
 import bcrypt from 'bcryptjs';
 import { randomUUID } from 'crypto';
 import { getLocalDb } from './local-db';
-import { normalizeTimestamp } from './db-adapter';
+import { normalizeTimestamp, shanghaiDatetime } from './db-adapter';
 
 // ---- Types ----
 
@@ -59,7 +59,7 @@ const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 export async function createSession(userId: number, clusterId?: number | null): Promise<string> {
   const db = await getLocalDb();
   const token = randomUUID();
-  const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString().replace('T', ' ').slice(0, 19);
+  const expiresAt = shanghaiDatetime(new Date(Date.now() + SESSION_TTL_MS));
   await db.run(
     'INSERT INTO sys_sessions (token, user_id, cluster_id, expires_at) VALUES (?, ?, ?, ?)',
     [token, userId, clusterId ?? null, expiresAt],

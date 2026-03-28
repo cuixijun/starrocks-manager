@@ -3,7 +3,7 @@
  */
 
 import { config } from './config';
-import { getDb, normalizeTimestamp } from './db-adapter';
+import { getDb, normalizeTimestamp, shanghaiDatetime } from './db-adapter';
 import type { DbAdapter } from './db-adapter';
 
 // ── Schema initializer (called once on first getDb()) ────────────────
@@ -248,7 +248,7 @@ export async function setSetting(key: string, value: string): Promise<void> {
     ['key'],
     ['value', 'updated_at'],
   );
-  await db.run(sql, [key, value, new Date().toISOString().replace('T', ' ').slice(0, 19)]);
+  await db.run(sql, [key, value, shanghaiDatetime()]);
 }
 
 // ── DB Metadata Cache ────────────────────────────────────────────────
@@ -292,7 +292,7 @@ export async function upsertDbCache(
     ['connection_id', 'db_name'],
     ['table_count', 'view_count', 'mv_count', 'cached_at'],
   );
-  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+  const now = shanghaiDatetime();
 
   await db.withTransaction(async (tx) => {
     for (const d of databases) {
@@ -344,7 +344,7 @@ export async function getBlobCache(table: CacheTable, connectionId: string, maxA
 export async function setBlobCache(table: CacheTable, connectionId: string, data: unknown): Promise<string> {
   const db = await getLocalDb();
   const json = JSON.stringify(data);
-  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+  const now = shanghaiDatetime();
   const sql = db.upsertSql(table, ['connection_id', 'data', 'cached_at'], ['connection_id'], ['data', 'cached_at']);
   await db.run(sql, [connectionId, json, now]);
   const row = await db.get<{ cached_at: string }>(`SELECT cached_at FROM ${table} WHERE connection_id = ?`, [connectionId]);
@@ -483,17 +483,20 @@ export interface AuditLogQuery {
 }
 
 /**
- * Convert an ISO 8601 date string (from frontend) to MySQL-compatible datetime.
- * Handles: "2026-03-28T12:23:46.787Z" → "2026-03-28 12:23:46"
+ * Convert a date string (ISO or local) to MySQL-compatible datetime in Shanghai timezone.
+ * "2026-03-28T12:23:46.787Z" → "2026-03-28 20:23:46" (UTC→+08:00)
+ * "2026-03-28 20:23:46"      → "2026-03-28 20:23:46" (pass-through)
  */
-function toMySQLDatetime(iso: string): string {
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) {
-    // Fallback: strip ISO markers manually
-    return iso.replace('T', ' ').replace('Z', '').replace(/\.\d+$/, '');
+function toShanghaiDatetime(dateStr: string): string {
+  // Already a plain datetime string without timezone qualifier → pass through
+  if (!dateStr.includes('T') && !dateStr.includes('Z') && !/[+-]\d{2}:\d{2}$/.test(dateStr)) {
+    return dateStr.replace(/\.\d+$/, '');
   }
-  // Format as YYYY-MM-DD HH:MM:SS in UTC
-  return d.toISOString().replace('T', ' ').slice(0, 19);
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) {
+    return dateStr.replace('T', ' ').replace('Z', '').replace(/\.\d+$/, '');
+  }
+  return shanghaiDatetime(d);
 }
 
 export async function queryAuditLogs(query: AuditLogQuery = {}): Promise<{ logs: AuditLogEntry[]; total: number }> {
@@ -509,21 +512,13 @@ export async function queryAuditLogs(query: AuditLogQuery = {}): Promise<{ logs:
   if (query.username) { conditions.push('username LIKE ?'); values.push(`%${query.username}%`); }
   if (query.action) { conditions.push('action LIKE ?'); values.push(`%${query.action}%`); }
   if (query.startDate) {
-    const dt = toMySQLDatetime(query.startDate);
-    if (db.isMysql) {
-      conditions.push('created_at >= CAST(? AS DATETIME)');
-    } else {
-      conditions.push('created_at >= ?');
-    }
+    const dt = toShanghaiDatetime(query.startDate);
+    conditions.push('created_at >= ?');
     values.push(dt);
   }
   if (query.endDate) {
-    const dt = toMySQLDatetime(query.endDate);
-    if (db.isMysql) {
-      conditions.push('created_at <= CAST(? AS DATETIME)');
-    } else {
-      conditions.push('created_at <= ?');
-    }
+    const dt = toShanghaiDatetime(query.endDate);
+    conditions.push('created_at <= ?');
     values.push(dt);
   }
 

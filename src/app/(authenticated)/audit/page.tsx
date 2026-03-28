@@ -96,17 +96,30 @@ function getTimeRangeISO(range: string): { startDate?: string; endDate?: string 
   };
   const ms = msMap[range] || 3600_000;
   const start = new Date(now.getTime() - ms);
-  return { startDate: start.toISOString(), endDate: now.toISOString() };
+  // Format as local time (Shanghai) YYYY-MM-DD HH:MM:SS
+  const fmt = (d: Date) => {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  };
+  return { startDate: fmt(start), endDate: fmt(now) };
 }
 
-function formatTime(iso: string) {
+function formatTime(dateStr: string) {
   try {
-    const d = new Date(iso.endsWith('Z') ? iso : iso.replace(' ', 'T') + 'Z');
+    let d: Date;
+    if (dateStr.includes('T') || dateStr.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(dateStr)) {
+      // ISO format or timezone-qualified
+      d = new Date(dateStr);
+    } else {
+      // Plain datetime "YYYY-MM-DD HH:MM:SS" → treat as Shanghai local time (+08:00)
+      d = new Date(dateStr.replace(' ', 'T') + '+08:00');
+    }
+    if (isNaN(d.getTime())) return dateStr;
     return d.toLocaleString('zh-CN', {
       year: 'numeric', month: '2-digit', day: '2-digit',
       hour: '2-digit', minute: '2-digit', second: '2-digit',
     });
-  } catch { return iso; }
+  } catch { return dateStr; }
 }
 
 function formatDetailRich(log: AuditLog): React.ReactNode {

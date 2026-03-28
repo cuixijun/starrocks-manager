@@ -93,7 +93,7 @@ echo ""
 # ---- 推送 ----
 echo "🚀 推送镜像到仓库..."
 docker push "${FULL_IMAGE}:${TAG}"
-docker push "${FULL_IMAGE}:latest"
+# docker push "${FULL_IMAGE}:latest"
 
 # ---- 清理生成的 config.yaml ----
 rm -f config.yaml

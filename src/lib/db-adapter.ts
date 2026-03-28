@@ -152,7 +152,7 @@ async function initAdapter(): Promise<DbAdapter> {
       waitForConnections: true,
       connectionLimit: 10,
       multipleStatements: true,
-      timezone: '+00:00',
+      timezone: '+08:00',
       dateStrings: true,
       charset: 'utf8mb4',
     });
@@ -172,8 +172,23 @@ export function getDb(): Promise<DbAdapter> {
 
 // ── Timestamp Normalization ──────────────────────────────────────────
 
+/**
+ * Normalize a DB timestamp string to an ISO-parseable format.
+ * MySQL dateStrings e.g. "2026-03-28 20:23:46" are treated as Asia/Shanghai (+08:00).
+ */
 export function normalizeTimestamp(ts: string): string {
   if (!ts) return ts;
-  if (ts.endsWith('Z')) return ts;
-  return ts.replace(' ', 'T') + 'Z';
+  // Already qualified with timezone
+  if (ts.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(ts)) return ts;
+  // Unqualified datetime → treat as Shanghai time
+  return ts.replace(' ', 'T') + '+08:00';
+}
+
+/**
+ * Format a Date as 'YYYY-MM-DD HH:MM:SS' in Asia/Shanghai (UTC+8).
+ * Used for INSERT/UPDATE values across both SQLite and MySQL.
+ */
+export function shanghaiDatetime(d: Date = new Date()): string {
+  const ms = d.getTime() + 8 * 3600_000;
+  return new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
 }
