@@ -8,6 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "init-db": "bash scripts/init-db.sh",
+    "db:migrate": "npx tsx -e \"const{getDb}=require('./src/lib/db-adapter');const{runMigrations}=require('./src/lib/migrator');(async()=>{await runMigrations(await getDb());process.exit(0)})().catch(e=>{console.error(e);process.exit(1)})\"",
+    "db:info": "npx tsx -e \"const{getDb}=require('./src/lib/db-adapter');const{getMigrationInfo}=require('./src/lib/migrator');(async()=>{const i=await getMigrationInfo(await getDb());console.log('Current version:',i.current);console.table(i.applied);if(i.pending.length)console.log('Pending:',i.pending);process.exit(0)})().catch(e=>{console.error(e);process.exit(1)})\"",
+    "db:validate": "npx tsx -e \"const{getDb}=require('./src/lib/db-adapter');const{validateMigrations}=require('./src/lib/migrator');(async()=>{await validateMigrations(await getDb());process.exit(0)})().catch(e=>{console.error(e);process.exit(1)})\"",
     "prod:start": "bash scripts/start.sh",
     "prod:stop": "bash scripts/stop.sh"
   },

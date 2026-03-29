@@ -2,6 +2,11 @@
 # StarRocks Manager — 数据库初始化脚本
 # 用法: ./scripts/init-db.sh [--force]
 # --force: 删除已有数据库并重新初始化
+#
+# 此脚本负责：
+#   1. 确保数据库/目录存在
+#   2. 调用 Flyway 风格迁移引擎执行所有待执行迁移
+#   3. 自动创建管理员账号
 
 set -e
 
@@ -21,7 +26,7 @@ if [ ! -f "config.yaml" ] && [ ! -f "config.yml" ]; then
   fi
 fi
 
-# 读取数据库类型和路径
+# 读取数据库类型
 DB_TYPE=$(node -e "
   const yaml = require('js-yaml');
   const fs = require('fs');
@@ -40,72 +45,61 @@ if [ "$DB_TYPE" = "sqlite" ]; then
     const p = cfg.database?.sqlite?.path || './data/starrocks-manager.db';
     console.log(path.isAbsolute(p) ? p : path.join(process.cwd(), p));
   ")
-  
+
   if [ "$1" = "--force" ] && [ -f "$DB_PATH" ]; then
     echo "删除已有数据库: $DB_PATH"
     rm -f "$DB_PATH"
   fi
-  
+
   echo "初始化 SQLite 数据库: $DB_PATH"
   mkdir -p "$(dirname "$DB_PATH")"
-  
-  # 执行 migration SQL
-  SQL_FILE="$PROJECT_DIR/db/migrations/001_init_sqlite.sql"
-  if [ -f "$SQL_FILE" ]; then
-    sqlite3 "$DB_PATH" < "$SQL_FILE"
-    echo "✅ 表结构初始化完成"
-  else
-    echo "错误: 未找到 migration 文件: $SQL_FILE"
-    exit 1
-  fi
-  
-  # 创建初始管理员
-  ADMIN_PWD=$(node -e "
-    const yaml = require('js-yaml');
-    const fs = require('fs');
-    const cfg = yaml.load(fs.readFileSync('config.yaml', 'utf8'));
-    const bcrypt = require('bcryptjs');
-    console.log(bcrypt.hashSync(cfg.admin?.password || 'Admin@2024', 10));
-  ")
-  
-  sqlite3 "$DB_PATH" "INSERT OR IGNORE INTO sys_users (username, password_hash, display_name, role) VALUES ('admin', '$ADMIN_PWD', '管理员', 'admin');"
-  echo "✅ 管理员账号初始化完成"
 
 elif [ "$DB_TYPE" = "mysql" ]; then
   echo "初始化 MySQL 数据库..."
-  
+
   MYSQL_HOST=$(node -e "const y=require('js-yaml'),f=require('fs');const c=y.load(f.readFileSync('config.yaml','utf8'));console.log(c.database?.mysql?.host||'127.0.0.1')")
   MYSQL_PORT=$(node -e "const y=require('js-yaml'),f=require('fs');const c=y.load(f.readFileSync('config.yaml','utf8'));console.log(c.database?.mysql?.port||3306)")
   MYSQL_USER=$(node -e "const y=require('js-yaml'),f=require('fs');const c=y.load(f.readFileSync('config.yaml','utf8'));console.log(c.database?.mysql?.user||'root')")
   MYSQL_PWD=$(node -e "const y=require('js-yaml'),f=require('fs');const c=y.load(f.readFileSync('config.yaml','utf8'));console.log(c.database?.mysql?.password||'')")
   MYSQL_DB=$(node -e "const y=require('js-yaml'),f=require('fs');const c=y.load(f.readFileSync('config.yaml','utf8'));console.log(c.database?.mysql?.database||'starrocks_manager')")
-  
-  # 创建数据库
+
+  # 创建数据库（如果不存在）
   mysql -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER" ${MYSQL_PWD:+-p"$MYSQL_PWD"} -e "CREATE DATABASE IF NOT EXISTS \`$MYSQL_DB\` DEFAULT CHARACTER SET utf8mb4;"
-  
-  # 执行 migration SQL
-  SQL_FILE="$PROJECT_DIR/db/migrations/001_init_mysql.sql"
-  if [ -f "$SQL_FILE" ]; then
-    mysql -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER" ${MYSQL_PWD:+-p"$MYSQL_PWD"} "$MYSQL_DB" < "$SQL_FILE"
-    echo "✅ 表结构初始化完成"
-  else
-    echo "错误: 未找到 migration 文件: $SQL_FILE"
-    exit 1
-  fi
-  
-  # 创建初始管理员
-  ADMIN_HASH=$(node -e "
-    const yaml = require('js-yaml');
-    const fs = require('fs');
-    const cfg = yaml.load(fs.readFileSync('config.yaml', 'utf8'));
-    const bcrypt = require('bcryptjs');
-    console.log(bcrypt.hashSync(cfg.admin?.password || 'Admin@2024', 10));
-  ")
-  
-  mysql -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER" ${MYSQL_PWD:+-p"$MYSQL_PWD"} "$MYSQL_DB" \
-    -e "INSERT IGNORE INTO sys_users (username, password_hash, display_name, role) VALUES ('admin', '$ADMIN_HASH', '管理员', 'admin');"
-  echo "✅ 管理员账号初始化完成"
+  echo "✅ 数据库 $MYSQL_DB 已就绪"
 fi
 
+# 执行 Flyway 风格迁移
 echo ""
-echo "初始化完成！可以使用 ./scripts/start.sh 启动服务"
+echo "执行数据库迁移..."
+node -e "
+  // 加载配置并运行迁移
+  const { getDb } = require('./src/lib/db-adapter');
+  const { runMigrations } = require('./src/lib/migrator');
+  const { config } = require('./src/lib/config');
+  const bcrypt = require('bcryptjs');
+
+  (async () => {
+    const db = await getDb();
+    await runMigrations(db);
+
+    // 创建初始管理员
+    const admin = await db.get('SELECT id FROM sys_users WHERE username = ?', ['admin']);
+    if (!admin) {
+      const hash = bcrypt.hashSync(config.admin?.password || 'Admin@2024', 10);
+      await db.run(
+        'INSERT INTO sys_users (username, password_hash, display_name, role) VALUES (?, ?, ?, ?)',
+        ['admin', hash, '管理员', 'admin']
+      );
+      console.log('✅ 管理员账号初始化完成');
+    } else {
+      console.log('✅ 管理员账号已存在，跳过');
+    }
+
+    console.log('');
+    console.log('初始化完成！可以使用 ./scripts/start.sh 启动服务');
+    process.exit(0);
+  })().catch(err => {
+    console.error('❌ 初始化失败:', err.message);
+    process.exit(1);
+  });
+"
