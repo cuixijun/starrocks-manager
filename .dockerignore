@@ -5,6 +5,8 @@ node_modules
 *.tar.gz
 *.md
 docs/
+!docs/changelog/
+!docs/changelog/*.md
 .agent/
 data/
 logs/

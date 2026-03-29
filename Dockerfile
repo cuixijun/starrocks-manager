@@ -36,6 +36,9 @@ COPY --from=builder --chown=nextjs:nodejs /app/node_modules/prebuild-install ./n
 # Copy config (from project root, contains MySQL connection info)
 COPY --chown=nextjs:nodejs config.yaml ./config.yaml
 
+# Copy changelog docs (read at runtime by /api/changelog)
+COPY --from=builder --chown=nextjs:nodejs /app/docs/changelog ./docs/changelog
+
 # Create data & logs directories
 RUN mkdir -p data logs && chown -R nextjs:nodejs data logs
 
