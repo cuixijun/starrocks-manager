@@ -30,6 +30,7 @@ import {
   KeyRound,
   Microscope,
   HardDriveDownload,
+  FileText,
 } from 'lucide-react';
 
 interface NavItem {
@@ -71,6 +72,7 @@ const navItems: NavItem[] = [
   { href: '/sys-users', icon: UserCog, label: '系统用户', permission: 'sys_users' },
   { href: '/audit', icon: ScrollText, label: '审计日志', permission: 'audit' },
   { href: '/sys-permissions', icon: KeyRound, label: '权限配置', permission: 'sys_permissions' },
+  { href: '/changelog', icon: FileText, label: '变更日志' },
   { href: '/design-system', icon: Paintbrush, label: 'UI 规范', adminOnly: true },
 ];
 
