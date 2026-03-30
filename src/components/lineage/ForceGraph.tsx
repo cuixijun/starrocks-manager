@@ -619,8 +619,8 @@ export default function ForceGraph({
         </div>
       )}
 
-      {/* Depth selector overlay — top-left of graph */}
-      <DepthDropdown value={nodeDepth} onChange={onDepthChange} />
+      {/* Depth selector overlay — temporarily hidden */}
+      {/* <DepthDropdown value={nodeDepth} onChange={onDepthChange} /> */}
 
       {/* Empty state */}
       {nodes.length === 0 && (
