@@ -67,6 +67,8 @@ const navItems: NavItem[] = [
   { href: '/variables', icon: Settings, label: '变量管理', permission: 'variables' },
   { href: '/show-proc', icon: Microscope, label: '高级诊断', permission: 'show_proc' },
   { href: '/compaction-score', icon: HardDriveDownload, label: '合并诊断', permission: 'show_proc' },
+  { label: '数据治理', section: true },
+  { href: '/lineage', icon: GitBranch, label: 'SQL 血缘', permission: 'dashboard' },
   { label: '系统设置', section: true },
   { href: '/cluster-manager', icon: Network, label: '集群管理', permission: 'cluster_manager' },
   { href: '/sys-users', icon: UserCog, label: '系统用户', permission: 'sys_users' },

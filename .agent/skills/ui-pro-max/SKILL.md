@@ -151,8 +151,17 @@ backdrop-filter: blur(8px)  — 仅用于 page-header sticky
 .form-label          — 0.8rem, weight 500, text-secondary
 .input               — 9px 12px padding, border: 1px, radius-md
 .form-row            — 水平 2 列 grid
-select.input         — 自定义下拉箭头, 40px min-height
+select.input         — 仅用于简单表单字段; 独立功能下拉必须使用自定义组件
 ```
+
+> [!IMPORTANT]
+> **禁止使用原生 `<select>` 作为功能性下拉选择器。** 所有下拉组件（筛选器、设置选择器等）必须使用统一的自定义下拉组件模式：
+> - **触发器** (`.xxx-trigger`): `button` 元素，显示图标 + 当前值 + 箭头
+> - **菜单** (`.xxx-menu`): `div` 绝对定位，`box-shadow: var(--shadow-lg)`，`animation: dropdownFadeIn`
+> - **选项** (`.xxx-item`): `button` 元素，选中态显示 ✓ 图标，active 高亮
+> - **外部点击关闭**: `useEffect` + `document.addEventListener('mousedown', handler)`
+> 
+> 参考实现：`DbDropdown` (page.tsx), `DepthDropdown` (ForceGraph.tsx), `.ln-dropdown-*` / `.ln-graph-depth-*` (globals.css)
 
 ### 6.3 表格
 
