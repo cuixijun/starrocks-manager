@@ -7,7 +7,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '@/lib/fetch-patch';
-import { getDbColor } from './graph-types';
+import { getDbColor, getQueryNodeColor } from './graph-types';
 import type { RawLineageNode, RawLineageEdge, RawLineageGraph } from './graph-types';
 import {
   ArrowLeft,
@@ -22,6 +22,9 @@ import {
   ChevronRight,
   Loader2,
   X,
+  Download,
+  Copy,
+  Check,
 } from 'lucide-react';
 
 interface TableLineagePanelProps {
@@ -29,6 +32,7 @@ interface TableLineagePanelProps {
   dbName: string;
   tableName: string;
   colorIdx: number;
+  nodeType: 'TABLE' | 'VIEW' | 'QUERY';
   dbColorMap: Map<string, number>;
   onClose: () => void;
   onNavigate: (dbName: string, tableName: string) => void;
@@ -45,6 +49,7 @@ export default function TableLineagePanel({
   dbName,
   tableName,
   colorIdx,
+  nodeType,
   dbColorMap,
   onClose,
   onNavigate,
@@ -54,6 +59,7 @@ export default function TableLineagePanel({
   const [expandedSql, setExpandedSql] = useState<number | null>(null);
   const [upExpanded, setUpExpanded] = useState(true);
   const [downExpanded, setDownExpanded] = useState(true);
+  const [copied, setCopied] = useState(false);
 
   const isDark = typeof document !== 'undefined' &&
     document.documentElement.getAttribute('data-theme') === 'dark';
@@ -115,23 +121,132 @@ export default function TableLineagePanel({
   const upstreamRelations = relations.filter(r => r.direction === 'upstream');
   const downstreamRelations = relations.filter(r => r.direction === 'downstream');
 
-  const color = getDbColor(colorIdx, isDark);
+  const isQuery = nodeType === 'QUERY';
+  const color = isQuery ? getQueryNodeColor(isDark) : getDbColor(colorIdx, isDark);
+
+  /* ── Export: download a plain-text lineage report ──────── */
+  const handleExport = useCallback(() => {
+    const displayName = isQuery
+      ? `查询 ${tableName.replace(/^query_/, '').substring(0, 20)}`
+      : `${dbName}.${tableName}`;
+
+    const lines: string[] = [
+      `========================================`,
+      `SQL 血缘关系报告`,
+      `========================================`,
+      `节点: ${displayName}`,
+      `类型: ${nodeType}`,
+      `导出时间: ${new Date().toLocaleString('zh-CN')}`,
+      ``,
+      `── 上游来源 (${upstreamRelations.length}) ──`,
+    ];
+
+    if (upstreamRelations.length === 0) {
+      lines.push(`  (无上游依赖)`);
+    } else {
+      upstreamRelations.forEach(rel => {
+        const edge = rel.edges[0];
+        lines.push(`  ${rel.node.db_name}.${rel.node.table_name}`);
+        if (edge) {
+          lines.push(`    类型: ${edge.relation_type}  执行次数: ${edge.exec_count}  最后执行: ${edge.last_exec_time?.slice(0, 19) || '-'}`);
+        }
+      });
+    }
+
+    lines.push(``);
+    lines.push(`── 下游消费 (${downstreamRelations.length}) ──`);
+
+    if (downstreamRelations.length === 0) {
+      lines.push(`  (无下游消费)`);
+    } else {
+      downstreamRelations.forEach(rel => {
+        const edge = rel.edges[0];
+        lines.push(`  ${rel.node.db_name}.${rel.node.table_name}`);
+        if (edge) {
+          lines.push(`    类型: ${edge.relation_type}  执行次数: ${edge.exec_count}  最后执行: ${edge.last_exec_time?.slice(0, 19) || '-'}`);
+        }
+      });
+    }
+
+    lines.push(``);
+    lines.push(`========================================`);
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `lineage_${tableName}_${new Date().toISOString().slice(0, 10)}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [dbName, tableName, nodeType, isQuery, upstreamRelations, downstreamRelations]);
+
+  /* ── Copy: upstream + downstream table list to clipboard ── */
+  const handleCopy = useCallback(async () => {
+    const upList = upstreamRelations.map(r => `${r.node.db_name}.${r.node.table_name}`);
+    const downList = downstreamRelations.map(r => `${r.node.db_name}.${r.node.table_name}`);
+
+    const text = [
+      `上游 (${upList.length}):`,
+      ...upList.map(t => `  ${t}`),
+      ``,
+      `下游 (${downList.length}):`,
+      ...downList.map(t => `  ${t}`),
+    ].join('\n');
+
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback for non-HTTPS
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  }, [upstreamRelations, downstreamRelations]);
 
   return (
     <aside className="ln-explore-panel">
       <div className="ln-explore-content">
         {/* Header */}
         <div className="ln-explore-header">
-          <button className="ln-explore-close" onClick={onClose}>
-            <X size={14} />
-          </button>
+          <div className="ln-explore-header-actions">
+            <button
+              className="ln-explore-action-btn"
+              onClick={handleCopy}
+              title={copied ? '已复制' : '复制上下游表清单'}
+            >
+              {copied ? <Check size={13} /> : <Copy size={13} />}
+            </button>
+            <button
+              className="ln-explore-action-btn"
+              onClick={handleExport}
+              title="导出血缘报告"
+            >
+              <Download size={13} />
+            </button>
+            <button className="ln-explore-close" onClick={onClose}>
+              <X size={14} />
+            </button>
+          </div>
           <div className="ln-explore-title">
             <div className="ln-explore-badge" style={{ background: color.fill, color: color.border }}>
-              <Table2 size={14} />
+              {isQuery ? <Code2 size={14} /> : <Table2 size={14} />}
             </div>
             <div className="ln-explore-names">
-              <span className="ln-explore-db" style={{ color: color.border }}>{dbName}</span>
-              <span className="ln-explore-table">{tableName}</span>
+              <span className="ln-explore-db" style={{ color: color.border }}>
+                {isQuery ? '⚡ 查询' : dbName}
+              </span>
+              <span className="ln-explore-table">
+                {isQuery ? tableName.replace(/^query_/, '').substring(0, 20) : tableName}
+              </span>
             </div>
           </div>
         </div>

@@ -278,10 +278,11 @@ export async function recordAuditLog(params: RecordAuditParams): Promise<void> {
 
     const db = await getLocalDb();
     const detailStr = typeof params.detail === 'object' ? JSON.stringify(params.detail) : (params.detail || '');
+    const now = shanghaiDatetime();
 
     await db.run(
-      'INSERT INTO audit_logs (user_id, username, action, category, level, target, detail, ip_address) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [params.userId ?? null, params.username, params.action, params.category, params.level, params.target || '', detailStr, params.ipAddress || ''],
+      'INSERT INTO audit_logs (user_id, username, action, category, level, target, detail, ip_address, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [params.userId ?? null, params.username, params.action, params.category, params.level, params.target || '', detailStr, params.ipAddress || '', now],
     );
 
     // Auto-cleanup: keep last 10000 (derived table for MySQL compat)

@@ -16,7 +16,7 @@ export interface TableRef {
 export interface LineageResult {
   sources: TableRef[];
   targets: TableRef[];
-  relationType: 'INSERT_SELECT' | 'CTAS' | 'VIEW' | 'UNKNOWN';
+  relationType: 'INSERT_SELECT' | 'CTAS' | 'VIEW' | 'QUERY' | 'UNKNOWN';
   parsed: boolean; // true = AST, false = regex fallback
 }
 
@@ -347,3 +347,68 @@ function dedup(refs: TableRef[]): TableRef[] {
     return true;
   });
 }
+
+/* ── Query SQL parsing (SELECT statements) ───────────────── */
+
+/** System databases — tables from these DBs are excluded from query source lineage */
+const SYSTEM_DB_SET = new Set([
+  'information_schema', 'starrocks_audit_db__', '_statistics_',
+  'sys', 'mysql', 'performance_schema', 'starrocks_monitor',
+]);
+
+/**
+ * Parse a SELECT SQL statement and extract all referenced source tables.
+ * Used for building query-type lineage nodes.
+ * Filters out system database tables from the results.
+ * @param sql The SELECT SQL text
+ * @param defaultDb The default database context from the audit log
+ * @returns Array of source TableRef (excluding system tables), or null if none found
+ */
+export function parseQuerySources(sql: string, defaultDb: string): TableRef[] | null {
+  let trimmed = sql.trim().replace(/;$/, '');
+  if (!trimmed) return null;
+
+  const upper = trimmed.toUpperCase();
+  // Must be a SELECT or WITH...SELECT (CTE)
+  if (!upper.startsWith('SELECT') && !upper.startsWith('WITH')) return null;
+  // Exclude WITH...INSERT (handled by non-query parser)
+  if (upper.startsWith('WITH') && upper.includes('INSERT ')) return null;
+
+  const sources: TableRef[] = [];
+
+  // Try AST parsing first
+  try {
+    const ast = parser.astify(trimmed, { database: 'mysql' });
+    const stmts = Array.isArray(ast) ? ast : [ast];
+    for (const stmt of stmts) {
+      if (!stmt) continue;
+      collectSourceTables(stmt, sources, defaultDb);
+    }
+    if (sources.length > 0) {
+      const filtered = filterSystemTables(dedup(sources));
+      return filtered.length > 0 ? filtered : null;
+    }
+  } catch {
+    // AST failed, fall through to regex
+  }
+
+  // Regex fallback
+  try {
+    const cteNames = collectCTENames(trimmed);
+    extractFromTables(trimmed, sources, defaultDb, cteNames);
+    if (sources.length > 0) {
+      const filtered = filterSystemTables(dedup(sources));
+      return filtered.length > 0 ? filtered : null;
+    }
+  } catch {
+    // Both methods failed
+  }
+
+  return null;
+}
+
+/** Remove tables that belong to system databases */
+function filterSystemTables(refs: TableRef[]): TableRef[] {
+  return refs.filter(r => !SYSTEM_DB_SET.has(r.db.toLowerCase()));
+}
+

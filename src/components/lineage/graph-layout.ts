@@ -50,25 +50,38 @@ export function buildGraph(raw: RawLineageGraph): BuiltGraph {
   const nodeMap = new Map<string, GraphNode>();
   const nodes: GraphNode[] = raw.nodes.map(n => {
     const degree = degreeMap.get(n.id) || 0;
+    const isQuery = n.node_type === 'QUERY';
 
     // Handle 3-segment "catalog.db.table" names
     let dbName = n.db_name;
     let tableName = n.table_name;
-    const fullParts = `${n.db_name}.${n.table_name}`.split('.');
-    if (fullParts.length >= 3) {
-      dbName = fullParts.slice(0, fullParts.length - 1).join('.');
-      tableName = fullParts[fullParts.length - 1];
+
+    if (isQuery) {
+      // Query node: table_name is "query_{digest}", display short fingerprint
+      tableName = n.table_name; // keep full for data; display will truncate
+    } else {
+      const fullParts = `${n.db_name}.${n.table_name}`.split('.');
+      if (fullParts.length >= 3) {
+        dbName = fullParts.slice(0, fullParts.length - 1).join('.');
+        tableName = fullParts[fullParts.length - 1];
+      }
     }
 
     // Compute rect dimensions based on text length
+    const displayName = isQuery
+      ? tableName.replace(/^query_/, '').substring(0, 10) // short fingerprint
+      : tableName;
     const tableCharWidth = 5.5;  // approximate char width at 9px font
     const dbCharWidth = 4;       // approximate char width at 7px font
     const textWidth = Math.max(
-      tableName.length * tableCharWidth,
-      dbName.length * dbCharWidth
+      displayName.length * tableCharWidth,
+      (isQuery ? 'QUERY'.length : dbName.length) * dbCharWidth
     );
-    const nodeWidth = Math.min(140, Math.max(60, textWidth + 20));
-    const nodeHeight = 30;
+    // Query pill: badge circle (18px) + gap (4px) + text + padding
+    const nodeWidth = isQuery
+      ? Math.min(110, Math.max(70, textWidth + 38))  // extra space for ⚡ badge
+      : Math.min(140, Math.max(60, textWidth + 20));
+    const nodeHeight = isQuery ? 22 : 30;  // compact pill height
     const radius = Math.max(nodeWidth, nodeHeight) / 2; // collide radius
 
     const node: GraphNode = {
@@ -76,12 +89,13 @@ export function buildGraph(raw: RawLineageGraph): BuiltGraph {
       nodeId: n.id,
       dbName,
       tableName,
-      label: `${dbName}.${tableName}`,
-      colorIdx: dbColorMap.get(n.db_name) ?? 0,
+      label: isQuery ? `query:${tableName.replace(/^query_/, '').substring(0, 12)}` : `${dbName}.${tableName}`,
+      colorIdx: isQuery ? -1 : (dbColorMap.get(n.db_name) ?? 0),  // -1 = query color
       degree,
       radius,
       nodeWidth,
       nodeHeight,
+      nodeType: (n.node_type as GraphNode['nodeType']) || 'TABLE',
     };
     nodeMap.set(node.id, node);
     return node;

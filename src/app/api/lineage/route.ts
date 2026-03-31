@@ -6,11 +6,14 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requirePermission, PERMISSIONS } from '@/lib/permissions';
+import { requireAuth } from '@/lib/auth';
+import { recordAuditLog } from '@/lib/local-db';
 import { syncLineage, getLineageStats, getLineageGraph } from '@/lib/lineage-collector';
 
 export async function POST(request: NextRequest) {
   try {
     await requirePermission(request, PERMISSIONS.DASHBOARD);
+    const { user } = await requireAuth(request);
     const body = await request.json();
     const { sessionId, clusterId } = body;
 
@@ -22,6 +25,23 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await syncLineage(sessionId, clusterId);
+
+    // Audit: lineage.sync
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || '';
+    await recordAuditLog({
+      userId: user.id, username: user.username,
+      action: 'lineage.sync', category: 'lineage', level: 'standard',
+      target: `集群 #${clusterId}`,
+      detail: {
+        digestsFound: result.digestsFound,
+        edgesCreated: result.edgesCreated,
+        edgesUpdated: result.edgesUpdated,
+        parseErrors: result.parseErrors,
+        status: result.status,
+      },
+      ipAddress: ip,
+    });
+
     return NextResponse.json(result);
   } catch (err) {
     return NextResponse.json(

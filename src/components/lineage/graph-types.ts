@@ -45,6 +45,7 @@ export interface GraphNode extends SimulationNodeDatum {
   radius: number;      // collide radius for d3-force
   nodeWidth: number;   // rendered rect width
   nodeHeight: number;  // rendered rect height
+  nodeType: 'TABLE' | 'VIEW' | 'QUERY';  // node category
   // d3 will add x, y, vx, vy
 }
 
@@ -95,6 +96,31 @@ export function getDbColor(idx: number, isDark: boolean): { fill: string; border
   };
 }
 
+/* ── Query node special color ─────────────────────────────── */
+
+export const QUERY_NODE_COLOR = {
+  dot: '#F59E0B',
+  fill: 'rgba(245,158,11,0.10)',
+  fillDark: 'rgba(251,191,36,0.15)',
+  border: '#F59E0B',
+  borderDark: '#FBBF24',
+  text: '#92400E',
+  textDark: '#FDE68A',
+  bg: '#FFFBEB',
+  bgDark: '#451A03',
+};
+
+export function getQueryNodeColor(isDark: boolean) {
+  const c = QUERY_NODE_COLOR;
+  return {
+    fill: isDark ? c.fillDark : c.fill,
+    border: isDark ? c.borderDark : c.border,
+    text: isDark ? c.textDark : c.text,
+    bg: isDark ? c.bgDark : c.bg,
+    dot: c.dot,
+  };
+}
+
 /* ── Stats types ──────────────────────────────────────────── */
 
 export interface LineageStats {
@@ -109,6 +135,9 @@ export interface SyncResult {
   edgesCreated: number;
   edgesUpdated: number;
   parseErrors: number;
+  queryDigestsFound: number;
+  queryNodesCreated: number;
+  queryEdgesCreated: number;
   status: string;
   errorMsg?: string;
 }

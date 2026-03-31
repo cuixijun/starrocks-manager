@@ -2,6 +2,8 @@ import { getLocalDb } from '@/lib/local-db';
 import { clearConnectionFailure, getPool } from '@/lib/db';
 import { config } from '@/lib/config';
 import mysql from 'mysql2/promise';
+// Co-start lineage scheduler with health monitor
+import '@/lib/lineage-scheduler';
 
 export interface ClusterHealthStatus {
   status: 'online' | 'offline';

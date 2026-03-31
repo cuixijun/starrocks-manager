@@ -18,7 +18,7 @@ import { select } from 'd3-selection';
 import { zoom as d3Zoom, zoomIdentity, type ZoomTransform } from 'd3-zoom';
 import type { Simulation } from 'd3-force';
 import type { GraphNode, GraphLink } from './graph-types';
-import { getDbColor } from './graph-types';
+import { getDbColor, getQueryNodeColor } from './graph-types';
 import { createSimulation } from './graph-layout';
 
 /* ── Props ────────────────────────────────────────────────── */
@@ -233,7 +233,7 @@ export default function ForceGraph({
       ctx.globalAlpha = 1.0;
     });
 
-    // Draw nodes as rectangles with db + table labels
+    // Draw nodes — rectangles for TABLE/VIEW, diamonds for QUERY
     currentNodes.forEach(node => {
       if (node.x === undefined || node.y === undefined) return;
 
@@ -241,65 +241,144 @@ export default function ForceGraph({
       const isNeighbor = neighborIds.has(node.id);
       const isHovered = hovered?.id === node.id;
       const isFaded = selected && !isSelected && !isNeighbor;
+      const isQuery = node.nodeType === 'QUERY';
 
-      const color = getDbColor(node.colorIdx, dark);
+      const color = isQuery ? getQueryNodeColor(dark) : getDbColor(node.colorIdx, dark);
       const hw = node.nodeWidth / 2;
       const hh = node.nodeHeight / 2;
       const scale = isHovered ? 1.06 : isSelected ? 1.08 : 1.0;
       const sW = hw * scale;
       const sH = hh * scale;
-      const rx = 5; // corner radius
 
       ctx.globalAlpha = isFaded ? 0.12 : 1.0;
 
-      // Outer glow for selected/hovered
-      if (isSelected || isHovered) {
-        const glowPad = 3;
+      if (isQuery) {
+        // ── QUERY node: premium rounded pill ──
+        const rx = sH; // fully rounded ends (pill shape)
+
+        // Outer glow ring for selected/hovered
+        if (isSelected || isHovered) {
+          const gp = 4;
+          ctx.beginPath();
+          roundRect(ctx, node.x - sW - gp, node.y - sH - gp,
+            (sW + gp) * 2, (sH + gp) * 2, rx + gp);
+          ctx.fillStyle = `rgba(${hexToRgb(color.border)}, 0.15)`;
+          ctx.fill();
+        }
+
+        // Pill background with gradient
+        const grad = ctx.createLinearGradient(node.x - sW, node.y, node.x + sW, node.y);
+        if (isSelected) {
+          grad.addColorStop(0, dark ? '#B45309' : '#D97706');
+          grad.addColorStop(1, dark ? '#92400E' : '#B45309');
+        } else {
+          grad.addColorStop(0, dark ? 'rgba(251,191,36,0.12)' : 'rgba(245,158,11,0.08)');
+          grad.addColorStop(1, dark ? 'rgba(217,119,6,0.18)' : 'rgba(245,158,11,0.15)');
+        }
         ctx.beginPath();
-        roundRect(ctx, node.x - sW - glowPad, node.y - sH - glowPad,
-          (sW + glowPad) * 2, (sH + glowPad) * 2, rx + 2);
-        ctx.fillStyle = `rgba(${hexToRgb(color.border)}, 0.12)`;
+        roundRect(ctx, node.x - sW, node.y - sH, sW * 2, sH * 2, rx);
+        ctx.fillStyle = grad;
         ctx.fill();
+
+        // Pill border — dashed for non-selected, solid for selected
+        ctx.strokeStyle = color.border;
+        if (isSelected) {
+          ctx.lineWidth = 2;
+          ctx.setLineDash([]);
+        } else {
+          ctx.lineWidth = 1.2;
+          ctx.setLineDash([3, 2]);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // ⚡ badge circle on left side
+        const badgeR = 8;
+        const badgeCx = node.x - sW + badgeR + 5;
+        const badgeCy = node.y;
+
+        // Badge circle fill
+        ctx.beginPath();
+        ctx.arc(badgeCx, badgeCy, badgeR, 0, Math.PI * 2);
+        ctx.fillStyle = isSelected
+          ? 'rgba(255,255,255,0.25)'
+          : (dark ? 'rgba(251,191,36,0.25)' : 'rgba(245,158,11,0.18)');
+        ctx.fill();
+        ctx.strokeStyle = isSelected ? 'rgba(255,255,255,0.5)' : color.border;
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+
+        // ⚡ icon inside badge
+        ctx.font = `bold 9px Inter, system-ui`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = isSelected ? '#FFFFFFDD' : color.border;
+        ctx.fillText('⚡', badgeCx, badgeCy);
+
+        // Fingerprint text — centered in remaining space
+        const fingerprint = node.tableName.replace(/^query_/, '').substring(0, 10);
+        const textCx = badgeCx + badgeR + (sW - badgeR - 5) + 2; // center of remaining space recomputed
+        const textAreaCx = (badgeCx + badgeR + 4 + node.x + sW - 4) / 2;
+
+        ctx.font = `600 8px 'JetBrains Mono', monospace`;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = isFaded
+          ? (dark ? 'rgba(148,163,184,0.3)' : 'rgba(100,116,139,0.3)')
+          : isSelected ? '#FFFFFFE6' : (dark ? '#FDE68A' : '#78350F');
+        ctx.fillText(fingerprint, textAreaCx, node.y + 0.5);
+      } else {
+        // ── TABLE / VIEW node: rounded rectangle ──
+        const rx = 5;
+
+        // Outer glow for selected/hovered
+        if (isSelected || isHovered) {
+          const glowPad = 3;
+          ctx.beginPath();
+          roundRect(ctx, node.x - sW - glowPad, node.y - sH - glowPad,
+            (sW + glowPad) * 2, (sH + glowPad) * 2, rx + 2);
+          ctx.fillStyle = `rgba(${hexToRgb(color.border)}, 0.12)`;
+          ctx.fill();
+        }
+
+        // Node rect background
+        ctx.beginPath();
+        roundRect(ctx, node.x - sW, node.y - sH, sW * 2, sH * 2, rx);
+        ctx.fillStyle = isSelected ? color.border : color.bg;
+        ctx.fill();
+        ctx.strokeStyle = color.border;
+        ctx.lineWidth = isSelected ? 2 : 1.2;
+        ctx.stroke();
+
+        // Left color accent bar
+        ctx.beginPath();
+        ctx.moveTo(node.x - sW + rx, node.y - sH);
+        ctx.lineTo(node.x - sW, node.y - sH + rx);
+        ctx.lineTo(node.x - sW, node.y + sH - rx);
+        ctx.lineTo(node.x - sW + rx, node.y + sH);
+        ctx.lineTo(node.x - sW + rx, node.y - sH);
+        ctx.closePath();
+        ctx.fillStyle = isSelected ? '#ffffff44' : color.border;
+        ctx.globalAlpha = isFaded ? 0.08 : (isSelected ? 0.5 : 0.25);
+        ctx.fill();
+        ctx.globalAlpha = isFaded ? 0.12 : 1.0;
+
+        // DB name text (small, colored, top row)
+        const dbFontSize = Math.max(5, Math.min(7, 7));
+        ctx.font = `600 ${dbFontSize}px Inter, system-ui`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = isSelected ? '#ffffffcc' : color.border;
+        const textX = node.x - sW + rx + 5;
+        ctx.fillText(truncate(node.dbName, 18), textX, node.y - 5);
+
+        // Table name text (bold, primary, bottom row)
+        const tableFontSize = Math.max(7, Math.min(9, 9));
+        ctx.font = `700 ${tableFontSize}px 'JetBrains Mono', monospace`;
+        ctx.fillStyle = isFaded
+          ? (dark ? 'rgba(148,163,184,0.3)' : 'rgba(100,116,139,0.3)')
+          : isSelected ? '#ffffffe6' : (dark ? '#E2E8F0' : '#1E293B');
+        ctx.fillText(truncate(node.tableName, 20), textX, node.y + 6);
       }
-
-      // Node rect background
-      ctx.beginPath();
-      roundRect(ctx, node.x - sW, node.y - sH, sW * 2, sH * 2, rx);
-      ctx.fillStyle = isSelected ? color.border : (dark ? color.bg : color.bg);
-      ctx.fill();
-      ctx.strokeStyle = color.border;
-      ctx.lineWidth = isSelected ? 2 : 1.2;
-      ctx.stroke();
-
-      // Left color accent bar
-      ctx.beginPath();
-      ctx.moveTo(node.x - sW + rx, node.y - sH);
-      ctx.lineTo(node.x - sW, node.y - sH + rx);
-      ctx.lineTo(node.x - sW, node.y + sH - rx);
-      ctx.lineTo(node.x - sW + rx, node.y + sH);
-      ctx.lineTo(node.x - sW + rx, node.y - sH);
-      ctx.closePath();
-      ctx.fillStyle = isSelected ? '#ffffff44' : color.border;
-      ctx.globalAlpha = isFaded ? 0.08 : (isSelected ? 0.5 : 0.25);
-      ctx.fill();
-      ctx.globalAlpha = isFaded ? 0.12 : 1.0;
-
-      // DB name text (small, colored, top row)
-      const dbFontSize = Math.max(5, Math.min(7, 7));
-      ctx.font = `600 ${dbFontSize}px Inter, system-ui`;
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-      ctx.fillStyle = isSelected ? '#ffffffcc' : color.border;
-      const textX = node.x - sW + rx + 5;
-      ctx.fillText(truncate(node.dbName, 18), textX, node.y - 5);
-
-      // Table name text (bold, primary, bottom row)
-      const tableFontSize = Math.max(7, Math.min(9, 9));
-      ctx.font = `700 ${tableFontSize}px 'JetBrains Mono', monospace`;
-      ctx.fillStyle = isFaded
-        ? (dark ? 'rgba(148,163,184,0.3)' : 'rgba(100,116,139,0.3)')
-        : isSelected ? '#ffffffe6' : (dark ? '#E2E8F0' : '#1E293B');
-      ctx.fillText(truncate(node.tableName, 20), textX, node.y + 6);
 
       ctx.globalAlpha = 1.0;
     });
@@ -562,6 +641,56 @@ export default function ForceGraph({
     draw();
   }, [findNodeAt, draw]);
 
+  /* ── Smooth center-on-node animation ────────────────────── */
+
+  const centerOnNode = useCallback((node: GraphNode) => {
+    const canvas = canvasRef.current;
+    const zoom = zoomBehaviorRef.current;
+    if (!canvas || !zoom || node.x === undefined || node.y === undefined) return;
+
+    const { w, h } = canvasSizeRef.current;
+    const curT = transformRef.current;
+    // Target: keep current scale, center node in visible area
+    // Right panel is 320px wide, so the visible center is shifted left
+    const PANEL_WIDTH = 320;
+    const targetK = Math.max(curT.k, 0.8); // ensure readable zoom
+    const targetX = (w - PANEL_WIDTH) / 2 - node.x * targetK;
+    const targetY = h / 2 - node.y * targetK;
+
+    // Animate with requestAnimationFrame lerp (~300ms)
+    const startT = { x: curT.x, y: curT.y, k: curT.k };
+    const duration = 300;
+    let startTime: number | null = null;
+
+    const easeInOutCubic = (t: number) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+    const animate = (now: number) => {
+      if (!startTime) startTime = now;
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      const ease = easeInOutCubic(progress);
+
+      const k = startT.k + (targetK - startT.k) * ease;
+      const x = startT.x + (targetX - startT.x) * ease;
+      const y = startT.y + (targetY - startT.y) * ease;
+
+      const newTransform = zoomIdentity.translate(x, y).scale(k);
+      transformRef.current = newTransform;
+      // Sync d3-zoom internal state
+      const sel = select(canvas);
+      zoom.on('zoom', null); // temporarily disable to prevent feedback
+      sel.call(zoom.transform, newTransform);
+      zoom.on('zoom', (event) => {
+        transformRef.current = event.transform;
+        draw();
+      }); // restore
+      draw();
+
+      if (progress < 1) requestAnimationFrame(animate);
+    };
+    requestAnimationFrame(animate);
+  }, [draw]);
+
   const handleClick = useCallback((e: React.MouseEvent) => {
     // Suppress click if we just finished dragging
     if (wasDraggingRef.current) {
@@ -571,10 +700,11 @@ export default function ForceGraph({
     const node = findNodeAt(e.clientX, e.clientY);
     if (node) {
       onNodeClick(node);
+      centerOnNode(node);
     } else {
       onBackgroundClick();
     }
-  }, [findNodeAt, onNodeClick, onBackgroundClick]);
+  }, [findNodeAt, onNodeClick, onBackgroundClick, centerOnNode]);
 
   const handleMouseLeave = useCallback(() => {
     hoveredRef.current = null;
@@ -608,13 +738,23 @@ export default function ForceGraph({
           <div className="ln-tooltip-header">
             <span
               className="ln-tooltip-dot"
-              style={{ background: getDbColor(tooltip.node.colorIdx, dark).dot }}
+              style={{ background: tooltip.node.nodeType === 'QUERY'
+                ? getQueryNodeColor(dark).dot
+                : getDbColor(tooltip.node.colorIdx, dark).dot }}
             />
-            <span className="ln-tooltip-db">{tooltip.node.dbName}</span>
+            <span className="ln-tooltip-db">
+              {tooltip.node.nodeType === 'QUERY' ? '⚡ 查询' : tooltip.node.dbName}
+            </span>
           </div>
-          <div className="ln-tooltip-table">{tooltip.node.tableName}</div>
+          <div className="ln-tooltip-table">
+            {tooltip.node.nodeType === 'QUERY'
+              ? tooltip.node.tableName.replace(/^query_/, '').substring(0, 20)
+              : tooltip.node.tableName}
+          </div>
           <div className="ln-tooltip-meta">
-            度数: {tooltip.node.degree}
+            {tooltip.node.nodeType === 'QUERY'
+              ? `关联表: ${tooltip.node.degree}`
+              : `度数: ${tooltip.node.degree}`}
           </div>
         </div>
       )}
