@@ -36,13 +36,6 @@ interface ForceGraphProps {
 /* ── Constants ────────────────────────────────────────────── */
 
 const NODE_HIT_PADDING = 8;
-const DEPTH_OPTIONS: { value: number | 'all'; label: string }[] = [
-  { value: 2, label: '2 层' },
-  { value: 3, label: '3 层' },
-  { value: 4, label: '4 层' },
-  { value: 5, label: '5 层' },
-  { value: 'all', label: '全部' },
-];
 
 /* ── Component ────────────────────────────────────────────── */
 
@@ -398,16 +391,21 @@ export default function ForceGraph({
     });
   }, [draw]);
 
+  const [layoutBusy, setLayoutBusy] = useState(false);
+  const layoutCancelRef = useRef<(() => void) | null>(null);
+
   useEffect(() => {
     if (!dimensions) return; // 等待真实尺寸
     if (nodes.length === 0) {
       if (simRef.current) simRef.current.stop();
       isSimRunningRef.current = false;
+      setLayoutBusy(false);
       draw(); // clear canvas
       return;
     }
 
-    // Stop previous
+    // ── Cancel any in-progress async layout ──
+    if (layoutCancelRef.current) { layoutCancelRef.current(); layoutCancelRef.current = null; }
     if (simRef.current) simRef.current.stop();
     cancelAnimationFrame(animFrameRef.current);
     needsRedrawRef.current = false;
@@ -415,48 +413,99 @@ export default function ForceGraph({
     const sim = createSimulation(nodes, links, dimensions.width, dimensions.height);
     simRef.current = sim;
 
-    // ── 预计算（静默，不触发任何绘制） ──
+    // Detect if nodes already have positions (filter scenario vs fresh data)
+    const alreadyPositioned = nodes.filter(n => n.x !== undefined && n.y !== undefined).length;
+    const needsWarmup = alreadyPositioned < nodes.length * 0.8;
+
     sim.stop();
-    sim.alpha(1);
-    const tickCount = Math.min(120, Math.max(60, nodes.length));
-    for (let i = 0; i < tickCount; i++) sim.tick();
 
-    // ── 自动缩放 fit-to-view ──
-    const pad = 20;
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    nodes.forEach(n => {
-      if (n.x === undefined || n.y === undefined) return;
-      const hw = n.nodeWidth / 2;
-      const hh = n.nodeHeight / 2;
-      if (n.x - hw < minX) minX = n.x - hw;
-      if (n.y - hh < minY) minY = n.y - hh;
-      if (n.x + hw > maxX) maxX = n.x + hw;
-      if (n.y + hh > maxY) maxY = n.y + hh;
-    });
+    // ── Helper: compute fit-to-view transform and sync to d3-zoom ──
+    const applyFitToView = () => {
+      const pad = 20;
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      nodes.forEach(n => {
+        if (n.x === undefined || n.y === undefined) return;
+        const hw = n.nodeWidth / 2;
+        const hh = n.nodeHeight / 2;
+        if (n.x - hw < minX) minX = n.x - hw;
+        if (n.y - hh < minY) minY = n.y - hh;
+        if (n.x + hw > maxX) maxX = n.x + hw;
+        if (n.y + hh > maxY) maxY = n.y + hh;
+      });
 
-    if (nodes.length > 0 && isFinite(minX)) {
-      const bw = maxX - minX;
-      const bh = maxY - minY;
-      const scale = Math.min(
-        (dimensions.width - pad * 2) / (bw || 1),
-        (dimensions.height - pad * 2) / (bh || 1),
-        3 // 最大缩放 3x
-      );
-      const tx = (dimensions.width - bw * scale) / 2 - minX * scale;
-      const ty = (dimensions.height - bh * scale) / 2 - minY * scale;
-      transformRef.current = zoomIdentity.translate(tx, ty).scale(scale);
+      if (nodes.length > 0 && isFinite(minX)) {
+        const bw = maxX - minX;
+        const bh = maxY - minY;
+        const scale = Math.min(
+          (dimensions.width - pad * 2) / (bw || 1),
+          (dimensions.height - pad * 2) / (bh || 1),
+          3,
+        );
+        const tx = (dimensions.width - bw * scale) / 2 - minX * scale;
+        const ty = (dimensions.height - bh * scale) / 2 - minY * scale;
+        transformRef.current = zoomIdentity.translate(tx, ty).scale(scale);
+      }
+      // Sync to d3-zoom internal state so wheel pan continues from here
+      const canvas = canvasRef.current;
+      if (canvas && zoomBehaviorRef.current) {
+        const sel = select(canvas);
+        const zb = zoomBehaviorRef.current;
+        const prevHandler = zb.on('zoom');
+        zb.on('zoom', null);
+        sel.call(zb.transform, transformRef.current);
+        if (prevHandler) zb.on('zoom', prevHandler);
+      }
+    };
+
+    // ── Layout execution ──
+    if (!needsWarmup) {
+      // ── 快速路径（过滤场景）：轻量布局，同步执行 ──
+      nodes.forEach(n => { n.vx = 0; n.vy = 0; });
+      sim.alpha(0.5);
+      const lightTicks = Math.min(40, Math.max(20, nodes.length));
+      for (let i = 0; i < lightTicks; i++) sim.tick();
+      applyFitToView();
+      readyRef.current = true;
+      setLayoutBusy(false);
+      draw();
+    } else {
+      // ── 异步分帧布局（首次加载/大图）：可取消，不阻塞主线程 ──
+      setLayoutBusy(true);
+      readyRef.current = false;
+      sim.alpha(1);
+      const totalTicks = Math.min(120, Math.max(60, nodes.length));
+      let completed = 0;
+      let cancelled = false;
+      const TICKS_PER_FRAME = 15; // batch 15 ticks per rAF to balance speed/responsiveness
+
+      const tickBatch = () => {
+        if (cancelled) return;
+        const end = Math.min(completed + TICKS_PER_FRAME, totalTicks);
+        for (let i = completed; i < end; i++) sim.tick();
+        completed = end;
+
+        if (completed < totalTicks) {
+          animFrameRef.current = requestAnimationFrame(tickBatch);
+        } else {
+          // Layout complete
+          applyFitToView();
+          readyRef.current = true;
+          setLayoutBusy(false);
+          draw();
+        }
+      };
+
+      layoutCancelRef.current = () => { cancelled = true; setLayoutBusy(false); };
+      animFrameRef.current = requestAnimationFrame(tickBatch);
     }
 
-    // ── 画唯一的一帧（已稳定 + 已缩放） ──
-    // 不在此处 draw，等 zoom effect 同步 transform 后统一绘制
-    readyRef.current = false;
-
-    // 注册 tick/end 仅用于后续拖动时的仿真（预计算阶段已结束）
+    // 注册 tick/end 仅用于后续拖动时的仿真
     sim.on('tick', () => { scheduleRedraw(); });
     sim.on('end', () => { isSimRunningRef.current = false; draw(); });
     isSimRunningRef.current = false;
 
     return () => {
+      if (layoutCancelRef.current) { layoutCancelRef.current(); layoutCancelRef.current = null; }
       sim.stop();
       isSimRunningRef.current = false;
       cancelAnimationFrame(animFrameRef.current);
@@ -480,26 +529,39 @@ export default function ForceGraph({
 
   const dragStateRef = useRef<{ node: GraphNode; startX: number; startY: number } | null>(null);
 
+  /* ── T-7 fix: shared hit-test helper (single source of truth) ──── */
+
+  /** Hit-test in world (simulation) coordinates — O(n) linear scan */
+  const hitTestWorld = useCallback((px: number, py: number): GraphNode | null => {
+    const currentNodes = nodesRef.current;
+    for (let i = currentNodes.length - 1; i >= 0; i--) {
+      const n = currentNodes[i];
+      if (n.x === undefined || n.y === undefined) continue;
+      const hw = n.nodeWidth / 2 + NODE_HIT_PADDING;
+      const hh = n.nodeHeight / 2 + NODE_HIT_PADDING;
+      if (px >= n.x - hw && px <= n.x + hw && py >= n.y - hh && py <= n.y + hh) {
+        return n;
+      }
+    }
+    return null;
+  }, []);
+
+  /** Hit-test from client (screen) coordinates — converts to world, then delegates */
+  const findNodeAt = useCallback((clientX: number, clientY: number): GraphNode | null => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    const t = transformRef.current;
+    const x = (clientX - rect.left - t.x) / t.k;
+    const y = (clientY - rect.top - t.y) / t.k;
+    return hitTestWorld(x, y);
+  }, [hitTestWorld]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const sel = select(canvas);
-
-    // Helper: check if point is inside a node rect
-    const hitTestNode = (px: number, py: number): GraphNode | null => {
-      const currentNodes = nodesRef.current;
-      for (let i = currentNodes.length - 1; i >= 0; i--) {
-        const n = currentNodes[i];
-        if (n.x === undefined || n.y === undefined) continue;
-        const hw = n.nodeWidth / 2 + NODE_HIT_PADDING;
-        const hh = n.nodeHeight / 2 + NODE_HIT_PADDING;
-        if (px >= n.x - hw && px <= n.x + hw && py >= n.y - hh && py <= n.y + hh) {
-          return n;
-        }
-      }
-      return null;
-    };
 
     // Zoom behavior — filter out mousedowns on nodes (let drag handle those)
     const zoomBehavior = d3Zoom<HTMLCanvasElement, unknown>()
@@ -513,7 +575,7 @@ export default function ForceGraph({
           const t = transformRef.current;
           const x = (event.clientX - rect.left - t.x) / t.k;
           const y = (event.clientY - rect.top - t.y) / t.k;
-          if (hitTestNode(x, y)) return false;
+          if (hitTestWorld(x, y)) return false;
         }
         return true;
       })
@@ -524,17 +586,7 @@ export default function ForceGraph({
 
     zoomBehaviorRef.current = zoomBehavior;
     sel.call(zoomBehavior);
-    // 同步预计算阶段设置的 transform 到 d3-zoom 内部，然后绘制唯一的首帧
-    if (transformRef.current !== zoomIdentity) {
-      // 临时移除 zoom 回调防止触发额外 draw
-      zoomBehavior.on('zoom', null);
-      sel.call(zoomBehavior.transform, transformRef.current);
-      zoomBehavior.on('zoom', (event) => {
-        transformRef.current = event.transform;
-        draw();
-      });
-    }
-    readyRef.current = true;
+    // Initial draw (zoom effect runs once on mount)
     draw();
 
     // Manual node drag via native mouse events
@@ -543,7 +595,7 @@ export default function ForceGraph({
       const t = transformRef.current;
       const x = (e.clientX - rect.left - t.x) / t.k;
       const y = (e.clientY - rect.top - t.y) / t.k;
-      const node = hitTestNode(x, y);
+      const node = hitTestWorld(x, y);
 
       if (node) {
         // Only allow dragging highlighted nodes (selected + neighbors)
@@ -597,37 +649,14 @@ export default function ForceGraph({
       window.removeEventListener('mousemove', handleMouseMoveGlobal);
       window.removeEventListener('mouseup', handleMouseUpGlobal);
     };
-  }, [draw]);
-
-  /* ── Hit detection (rect-based) ──────────────────────── */
-
-  const findNodeAt = useCallback((clientX: number, clientY: number): GraphNode | null => {
-    const canvas = canvasRef.current;
-    if (!canvas) return null;
-
-    const rect = canvas.getBoundingClientRect();
-    const t = transformRef.current;
-    const x = (clientX - rect.left - t.x) / t.k;
-    const y = (clientY - rect.top - t.y) / t.k;
-
-    const currentNodes = nodesRef.current;
-    for (let i = currentNodes.length - 1; i >= 0; i--) {
-      const n = currentNodes[i];
-      if (n.x === undefined || n.y === undefined) continue;
-      const hw = n.nodeWidth / 2 + NODE_HIT_PADDING;
-      const hh = n.nodeHeight / 2 + NODE_HIT_PADDING;
-      if (x >= n.x - hw && x <= n.x + hw && y >= n.y - hh && y <= n.y + hh) {
-        return n;
-      }
-    }
-    return null;
-  }, []);
+  }, [draw, hitTestWorld]);
 
   /* ── Mouse events ─────────────────────────────────────── */
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (dragStateRef.current) return; // Don't update tooltip while dragging
     const node = findNodeAt(e.clientX, e.clientY);
+    const prevHovered = hoveredRef.current;
     hoveredRef.current = node;
     const canvas = canvasRef.current;
     if (canvas && !dragStateRef.current) canvas.style.cursor = node ? 'pointer' : 'grab';
@@ -638,8 +667,11 @@ export default function ForceGraph({
     } else {
       setTooltip(null);
     }
-    draw();
-  }, [findNodeAt, draw]);
+    // Only redraw if hovered node actually changed (avoids 60fps full redraws)
+    if (prevHovered?.id !== node?.id) {
+      scheduleRedraw();
+    }
+  }, [findNodeAt, scheduleRedraw]);
 
   /* ── Smooth center-on-node animation ────────────────────── */
 
@@ -759,8 +791,13 @@ export default function ForceGraph({
         </div>
       )}
 
-      {/* Depth selector overlay — temporarily hidden */}
-      {/* <DepthDropdown value={nodeDepth} onChange={onDepthChange} /> */}
+      {/* Loading overlay during async layout */}
+      {layoutBusy && nodes.length > 0 && (
+        <div className="ln-layout-overlay">
+          <div className="spinner" />
+          <span>布局计算中...</span>
+        </div>
+      )}
 
       {/* Empty state */}
       {nodes.length === 0 && (
@@ -774,62 +811,6 @@ export default function ForceGraph({
             </svg>
             <div className="empty-state-text">暂无血缘数据，请点击「同步血缘」采集</div>
           </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ── Depth Dropdown (custom, non-native) ──────────────── */
-
-function DepthDropdown({ value, onChange }: {
-  value: number | 'all';
-  onChange: (v: number | 'all') => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = React.useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as HTMLElement)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  const currentLabel = DEPTH_OPTIONS.find(o => o.value === value)?.label ?? String(value);
-
-  return (
-    <div className="ln-graph-depth-wrap" ref={ref}>
-      <button className="ln-graph-depth-trigger" onClick={() => setOpen(!open)}>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <line x1="6" y1="3" x2="6" y2="15" />
-          <circle cx="18" cy="6" r="3" />
-          <circle cx="6" cy="18" r="3" />
-          <path d="M18 9a9 9 0 0 1-9 9" />
-        </svg>
-        <span>深度</span>
-        <span className="ln-graph-depth-value">{currentLabel}</span>
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transform: open ? 'rotate(180deg)' : undefined, transition: 'transform 0.15s' }}>
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
-      </button>
-      {open && (
-        <div className="ln-graph-depth-menu">
-          {DEPTH_OPTIONS.map(opt => (
-            <button
-              key={String(opt.value)}
-              className={`ln-graph-depth-item ${value === opt.value ? 'active' : ''}`}
-              onClick={() => { onChange(opt.value); setOpen(false); }}
-            >
-              {opt.label}
-              {value === opt.value && (
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              )}
-            </button>
-          ))}
         </div>
       )}
     </div>

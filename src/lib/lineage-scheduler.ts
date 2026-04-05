@@ -10,9 +10,8 @@
  */
 
 import { getLocalDb, recordAuditLog } from '@/lib/local-db';
-import { syncLineage } from '@/lib/lineage-collector';
-import { getPool } from '@/lib/db';
-import mysql from 'mysql2/promise';
+import { syncLineage, cleanupLineageData } from '@/lib/lineage-collector';
+import { getPool, createPool } from '@/lib/db';
 
 /* ── Types ── */
 
@@ -74,24 +73,19 @@ async function getSessionId(clusterId: number): Promise<string | null> {
     const pool = getPool(sessionId);
     if (pool) return sessionId;
 
-    // No pool yet: create a temporary connection to verify, then return sessionId
-    // The syncLineage call will use executeQuery which handles pool creation
-    let conn;
+    // No pool yet: create one via createPool (verifies connectivity + registers pool)
+    // This avoids the leak of creating a temporary connection that gets discarded.
     try {
-      conn = await mysql.createConnection({
+      await createPool({
         host: cluster.host,
         port: cluster.port,
         user: cluster.username,
         password: cluster.password,
-        connectTimeout: 3000,
       });
-      await conn.query('SELECT 1');
       return sessionId;
     } catch {
       console.warn(`[LineageScheduler] Cluster #${clusterId} not reachable, skipping sync`);
       return null;
-    } finally {
-      if (conn) try { await conn.end(); } catch { /* ignore */ }
     }
   } catch (err) {
     console.warn(`[LineageScheduler] Failed to get session for cluster #${clusterId}:`, err);
@@ -119,6 +113,13 @@ async function runScheduledSync(clusterId: number): Promise<void> {
       `[LineageScheduler] Auto-sync cluster #${clusterId} done:`,
       `${result.digestsFound} digests, ${result.edgesCreated} new, ${result.edgesUpdated} updated`,
     );
+
+    // Run periodic cleanup after successful sync
+    try {
+      await cleanupLineageData(clusterId);
+    } catch (e) {
+      console.warn(`[LineageScheduler] Cleanup cluster #${clusterId} failed:`, e);
+    }
 
     // Audit: lineage.auto_sync
     await recordAuditLog({
@@ -158,6 +159,7 @@ async function runScheduledSync(clusterId: number): Promise<void> {
  * Get the schedule for a specific cluster.
  */
 export async function getSchedule(clusterId: number): Promise<ScheduleConfig> {
+  await startLineageScheduler(); // lazy init on first use
   // Check in-memory cache first
   if (_schedules.has(clusterId)) {
     return { clusterId, intervalMinutes: _schedules.get(clusterId)! };
@@ -187,21 +189,20 @@ export function getNextSyncTime(clusterId: number): number | null {
  * Set the schedule for a cluster. Persists to DB and manages the timer.
  */
 export async function setSchedule(clusterId: number, intervalMinutes: number): Promise<void> {
+  await startLineageScheduler(); // lazy init on first use
   const db = await getLocalDb();
 
-  // Upsert into DB
-  const existing = await db.get<{ id: number }>(
-    'SELECT id FROM lineage_schedule WHERE cluster_id = ?',
-    [clusterId],
-  );
-  if (existing) {
+  // T-9 fix: use UPSERT instead of SELECT+UPDATE/INSERT to prevent race condition
+  if (db.isMysql) {
     await db.run(
-      'UPDATE lineage_schedule SET interval_minutes = ?, updated_at = CURRENT_TIMESTAMP WHERE cluster_id = ?',
-      [intervalMinutes, clusterId],
+      `INSERT INTO lineage_schedule (cluster_id, interval_minutes) VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE interval_minutes = VALUES(interval_minutes), updated_at = CURRENT_TIMESTAMP`,
+      [clusterId, intervalMinutes],
     );
   } else {
     await db.run(
-      'INSERT INTO lineage_schedule (cluster_id, interval_minutes) VALUES (?, ?)',
+      `INSERT INTO lineage_schedule (cluster_id, interval_minutes) VALUES (?, ?)
+       ON CONFLICT(cluster_id) DO UPDATE SET interval_minutes = excluded.interval_minutes, updated_at = CURRENT_TIMESTAMP`,
       [clusterId, intervalMinutes],
     );
   }
@@ -280,6 +281,3 @@ export async function startLineageScheduler(): Promise<void> {
     console.warn('[LineageScheduler] Failed to start:', err);
   }
 }
-
-// Auto-start on first import
-startLineageScheduler();

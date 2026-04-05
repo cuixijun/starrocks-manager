@@ -2,8 +2,7 @@ import { getLocalDb } from '@/lib/local-db';
 import { clearConnectionFailure, getPool } from '@/lib/db';
 import { config } from '@/lib/config';
 import mysql from 'mysql2/promise';
-// Co-start lineage scheduler with health monitor
-import '@/lib/lineage-scheduler';
+import { startLineageScheduler } from '@/lib/lineage-scheduler';
 
 export interface ClusterHealthStatus {
   status: 'online' | 'offline';
@@ -120,6 +119,9 @@ export function startHealthMonitor(): void {
   globalForHealth.__healthRunning = true;
 
   console.log('[HealthMonitor] Starting singleton health monitor (interval: 5min)');
+
+  // Co-start lineage scheduler (explicit, not side-effect import)
+  startLineageScheduler();
 
   // Initial check immediately
   checkAllClustersHealth();

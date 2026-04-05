@@ -165,6 +165,24 @@ export async function getUserClusters(userId: number, role: SysRole): Promise<Cl
   );
 }
 
+/**
+ * S-2 fix: Verify the authenticated user has access to the specified cluster.
+ * Admin users bypass the check; non-admin must have a row in user_cluster_access.
+ */
+export async function requireClusterAccess(request: Request, clusterId: number): Promise<{ user: SysUser; session: SysSession }> {
+  const result = await requireAuth(request);
+  if (result.user.role === 'admin') return result;
+  const db = await getLocalDb();
+  const access = await db.get<{ user_id: number }>(
+    'SELECT user_id FROM user_cluster_access WHERE user_id = ? AND cluster_id = ?',
+    [result.user.id, clusterId],
+  );
+  if (!access) {
+    throw new AuthError('无权访问该集群', 403);
+  }
+  return result;
+}
+
 export async function getCluster(clusterId: number): Promise<ClusterInfo | null> {
   const db = await getLocalDb();
   const row = await db.get<ClusterInfo>('SELECT * FROM clusters WHERE id = ? AND is_active = 1', [clusterId]);

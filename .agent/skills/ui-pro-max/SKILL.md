@@ -97,7 +97,7 @@ backdrop-filter: blur(8px)  — 仅用于 page-header sticky
 ## 4. 布局规范
 
 ```
-┌─ Sidebar (240px, fixed) ─┬─ Main Content (flex: 1) ─────────────┐
+┌─ Sidebar (208px, fixed) ─┬─ Main Content (flex: 1) ─────────────┐
 │  sidebar-header (76px)    │  page-header (sticky, 76px min)      │
 │  sidebar-nav              │  ┌─ topbar-header (absolute, 右上角) │
 │  (可滚动)                  │  │  cluster-switcher + user-menu     │

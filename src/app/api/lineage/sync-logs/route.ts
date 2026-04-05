@@ -4,6 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requirePermission, PERMISSIONS } from '@/lib/permissions';
+import { requireClusterAccess } from '@/lib/auth';
 import { getSyncLogs } from '@/lib/lineage-collector';
 
 export async function GET(request: NextRequest) {
@@ -17,12 +18,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'clusterId is required' }, { status: 400 });
     }
 
+    // S-2: verify cluster access
+    await requireClusterAccess(request, clusterId);
+
     const logs = await getSyncLogs(clusterId, limit);
     return NextResponse.json({ logs });
   } catch (err) {
+    // R-3: log full error server-side, return sanitized message to client
+    console.error(`[Lineage SyncLogs API] GET error:`, err);
+    const status = (err as { status?: number }).status || 500;
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
+      { error: status < 500 && err instanceof Error ? err.message : '服务器内部错误' },
+      { status },
     );
   }
 }

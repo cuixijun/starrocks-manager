@@ -165,8 +165,8 @@ code, pre {
 
 /* ---- Sidebar ---- */
 .sidebar {
-  width: 240px;
-  min-width: 240px;
+  width: 208px;
+  min-width: 208px;
   background: var(--bg-sidebar);
   border-right: 1px solid var(--border-primary);
   display: flex;
@@ -272,6 +272,20 @@ code, pre {
   flex-shrink: 0;
 }
 
+.nav-badge {
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: linear-gradient(135deg, var(--accent-400), var(--accent-600));
+  color: #fff;
+  line-height: 1.5;
+  flex-shrink: 0;
+}
+
 .sidebar-footer {
   padding: 12px;
   border-top: 1px solid var(--border-primary);
@@ -324,7 +338,7 @@ code, pre {
 /* ---- Main Content ---- */
 .main-content {
   flex: 1;
-  margin-left: 240px;
+  margin-left: 208px;
   display: flex;
   flex-direction: column;
   height: 100vh;
@@ -3599,6 +3613,40 @@ select.input option:checked {
   padding-right: 4px;
 }
 
+/* ── Query node toggle ── */
+.ln-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.ln-toggle-btn:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.ln-toggle-btn.ln-toggle-active {
+  background: rgba(245, 158, 11, 0.08);
+  border-color: #F59E0B;
+  color: #B45309;
+}
+
+[data-theme="dark"] .ln-toggle-btn.ln-toggle-active {
+  background: rgba(251, 191, 36, 0.12);
+  border-color: #FBBF24;
+  color: #FDE68A;
+}
+
 .ln-stats-chips {
   display: flex;
   gap: 6px;
@@ -3809,6 +3857,33 @@ select.input option:checked {
   align-items: center;
   justify-content: center;
   pointer-events: none;
+}
+
+.ln-layout-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 20;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  animation: ln-layout-fade-in 0.2s ease-out;
+  pointer-events: none;
+}
+
+[data-theme="dark"] .ln-layout-overlay {
+  background: rgba(15, 23, 42, 0.6);
+}
+
+@keyframes ln-layout-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* ── Canvas Tooltip ── */

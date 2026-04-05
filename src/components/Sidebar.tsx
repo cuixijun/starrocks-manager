@@ -40,6 +40,7 @@ interface NavItem {
   icon?: React.ElementType;
   permission?: string;        // permission key from permissions.ts
   adminOnly?: boolean;        // items with no permission key, admin-only (e.g. design-system)
+  badge?: string;             // optional badge text (e.g. 'Beta')
 }
 
 const navItems: NavItem[] = [
@@ -68,7 +69,7 @@ const navItems: NavItem[] = [
   { href: '/show-proc', icon: Microscope, label: '高级诊断', permission: 'show_proc' },
   { href: '/compaction-score', icon: HardDriveDownload, label: '合并诊断', permission: 'show_proc' },
   { label: '数据治理', section: true },
-  { href: '/lineage', icon: GitBranch, label: 'SQL 血缘', permission: 'dashboard' },
+  { href: '/lineage', icon: GitBranch, label: 'SQL 血缘', permission: 'dashboard', badge: 'Beta' },
   { label: '系统设置', section: true },
   { href: '/cluster-manager', icon: Network, label: '集群管理', permission: 'cluster_manager' },
   { href: '/sys-users', icon: UserCog, label: '系统用户', permission: 'sys_users' },
@@ -123,6 +124,7 @@ export default function Sidebar() {
             <Link key={item.href} href={item.href!} className={`nav-item ${isActive ? 'active' : ''}`}>
               <Icon />
               <span>{item.label}</span>
+              {item.badge && <span className="nav-badge">{item.badge}</span>}
             </Link>
           );
         })}

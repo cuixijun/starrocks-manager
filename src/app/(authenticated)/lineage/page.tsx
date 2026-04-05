@@ -32,6 +32,8 @@ import {
   X,
   Timer,
   Play,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 /* ── Custom DB Dropdown (kept from original) ──────────────── */
@@ -146,6 +148,7 @@ export default function LineagePage() {
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
   const [error, setError] = useState('');
   const [nodeDepth, setNodeDepth] = useState<number | 'all'>(2);
+  const [hideQueryNodes, setHideQueryNodes] = useState(false);
 
   /* ── Schedule state (server-side managed) ──────────── */
   const SCHEDULE_OPTIONS = [
@@ -171,7 +174,9 @@ export default function LineagePage() {
       const res = await apiFetch(`/api/lineage?type=stats&clusterId=${clusterId}`);
       const data = await res.json();
       setStats(data);
-    } catch { /* ignore */ }
+    } catch (err) {
+      console.warn('[Lineage] Failed to load stats:', err);
+    }
   }, [clusterId]);
 
   const loadGraph = useCallback(async () => {
@@ -190,15 +195,16 @@ export default function LineagePage() {
   }, [clusterId]);
 
   const handleSync = useCallback(async () => {
-    if (!sessionId || !clusterId) return;
+    if (!clusterId) return;
     setSyncing(true);
     setSyncResult(null);
     setError('');
     try {
+      // S-1 fix: no longer send sessionId — server constructs it from clusterId
       const res = await apiFetch(`/api/lineage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, clusterId }),
+        body: JSON.stringify({ clusterId }),
       });
       const result: SyncResult = await res.json();
       setSyncResult(result);
@@ -209,7 +215,7 @@ export default function LineagePage() {
     } finally {
       setSyncing(false);
     }
-  }, [sessionId, clusterId, loadStats, loadGraph]);
+  }, [clusterId, loadStats, loadGraph]);
 
   const loadSyncLogs = useCallback(async () => {
     if (!clusterId) return;
@@ -217,7 +223,9 @@ export default function LineagePage() {
       const res = await apiFetch(`/api/lineage/sync-logs?clusterId=${clusterId}`);
       const data = await res.json();
       setSyncLogs(data.logs || []);
-    } catch { /* ignore */ }
+    } catch (err) {
+      console.warn('[Lineage] Failed to load sync logs:', err);
+    }
   }, [clusterId]);
 
   useEffect(() => {
@@ -234,7 +242,9 @@ export default function LineagePage() {
       const data = await res.json();
       setScheduleMin(data.intervalMinutes ?? 0);
       nextSyncTimeRef.current = data.nextSyncTime ?? null;
-    } catch { /* ignore */ }
+    } catch (err) {
+      console.warn('[Lineage] Failed to load schedule:', err);
+    }
   }, [clusterId]);
 
   useEffect(() => {
@@ -253,8 +263,12 @@ export default function LineagePage() {
       });
       const data = await res.json();
       nextSyncTimeRef.current = data.nextSyncTime ?? null;
-    } catch { /* ignore, already optimistically updated UI */ }
-  }, [clusterId]);
+    } catch (err) {
+      // Rollback optimistic update on failure
+      console.warn('[Lineage] Failed to update schedule:', err);
+      loadSchedule();
+    }
+  }, [clusterId, loadSchedule]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -299,6 +313,13 @@ export default function LineagePage() {
 
   /* ── Graph building & filtering ───────────────────────── */
 
+  // Debounce search input to avoid re-layout on every keystroke
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchTerm), 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
   const builtGraph: BuiltGraph | null = useMemo(() => {
     if (!rawGraph) return null;
     return buildGraph(rawGraph);
@@ -306,8 +327,8 @@ export default function LineagePage() {
 
   const filteredGraph = useMemo(() => {
     if (!builtGraph) return { nodes: [], links: [], dbColorMap: new Map<string, number>() };
-    return filterGraph(builtGraph, searchTerm, dbFilter, nodeDepth);
-  }, [builtGraph, searchTerm, dbFilter, nodeDepth]);
+    return filterGraph(builtGraph, debouncedSearch, dbFilter, nodeDepth, selectedNode?.id, hideQueryNodes);
+  }, [builtGraph, debouncedSearch, dbFilter, nodeDepth, selectedNode?.id, hideQueryNodes]);
 
   const dbColorMap = filteredGraph.dbColorMap;
 
@@ -383,6 +404,14 @@ export default function LineagePage() {
                     colorMap={dbColorMap}
                   />
                 )}
+                <button
+                  className={`ln-toggle-btn ${hideQueryNodes ? 'ln-toggle-active' : ''}`}
+                  onClick={() => setHideQueryNodes(v => !v)}
+                  title={hideQueryNodes ? '显示查询节点' : '隐藏查询节点'}
+                >
+                  {hideQueryNodes ? <EyeOff size={13} /> : <Eye size={13} />}
+                  <span>{hideQueryNodes ? '查询已隐藏' : '查询节点'}</span>
+                </button>
                 </div>
                 <div className="ln-toolbar-right">
                 {stats && (
@@ -448,7 +477,7 @@ export default function LineagePage() {
               <div className={`ln-sync-toast ${syncResult.status === 'FAILED' ? 'error' : ''}`}>
                 <Info size={14} />
                 <span>
-                  同步完成: 发现 {syncResult.digestsFound} 条 SQL, 新增 {syncResult.edgesCreated} / 更新 {syncResult.edgesUpdated} 条关系
+                  同步完成: 发现 {syncResult.digestsFound + (syncResult.queryDigestsFound || 0)} 条 SQL, 新增 {syncResult.edgesCreated + (syncResult.queryEdgesCreated || 0)} / 更新 {syncResult.edgesUpdated} 条关系
                   {syncResult.queryNodesCreated > 0 && `, 查询节点 ${syncResult.queryNodesCreated} 个`}
                   {syncResult.parseErrors > 0 && `, ${syncResult.parseErrors} 条解析失败`}
                 </span>
@@ -463,17 +492,21 @@ export default function LineagePage() {
                 <aside className="ln-sidebar-legend">
                   <div className="ln-sidebar-legend-title">数据库</div>
                   <div className="ln-sidebar-legend-list">
-                    {stats.databases.map((d, i) => (
-                      <button
-                        key={d.db_name}
-                        className={`ln-legend-item ${dbFilter === d.db_name ? 'ln-legend-active' : ''}`}
-                        onClick={() => setDbFilter(d.db_name === dbFilter ? '' : d.db_name)}
-                      >
-                        <span className="ln-legend-dot" style={{ background: DB_COLORS[i % DB_COLORS.length].dot }} />
-                        <span className="ln-legend-text">{d.db_name}</span>
-                        <span className="ln-legend-count">{d.cnt}</span>
-                      </button>
-                    ))}
+                    {stats.databases.map((d) => {
+                      // L-6 fix: use dbColorMap from buildGraph for consistent color assignment
+                      const colorIdx = dbColorMap.get(d.db_name) ?? 0;
+                      return (
+                        <button
+                          key={d.db_name}
+                          className={`ln-legend-item ${dbFilter === d.db_name ? 'ln-legend-active' : ''}`}
+                          onClick={() => setDbFilter(d.db_name === dbFilter ? '' : d.db_name)}
+                        >
+                          <span className="ln-legend-dot" style={{ background: DB_COLORS[colorIdx % DB_COLORS.length].dot }} />
+                          <span className="ln-legend-text">{d.db_name}</span>
+                          <span className="ln-legend-count">{d.cnt}</span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </aside>
               )}
@@ -483,15 +516,26 @@ export default function LineagePage() {
                   <div className="loading-overlay"><div className="spinner" /> 加载血缘数据...</div>
                 </div>
               ) : (
-                <ForceGraph
-                  nodes={filteredGraph.nodes}
-                  links={filteredGraph.links}
-                  selectedNodeId={selectedNode?.id ?? null}
-                  onNodeClick={handleNodeClick}
-                  onBackgroundClick={handleBackgroundClick}
-                  nodeDepth={nodeDepth}
-                  onDepthChange={setNodeDepth}
-                />
+                <>
+                  {/* M-7: large graph warning */}
+                  {filteredGraph.nodes.length > 1000 && (
+                    <div className="ln-sync-toast" style={{ zIndex: 5 }}>
+                      <Info size={14} />
+                      <span>
+                        当前显示 {filteredGraph.nodes.length} 个节点，数据量较大可能影响渲染性能。建议筛选数据库或调整深度。
+                      </span>
+                    </div>
+                  )}
+                  <ForceGraph
+                    nodes={filteredGraph.nodes}
+                    links={filteredGraph.links}
+                    selectedNodeId={selectedNode?.id ?? null}
+                    onNodeClick={handleNodeClick}
+                    onBackgroundClick={handleBackgroundClick}
+                    nodeDepth={nodeDepth}
+                    onDepthChange={setNodeDepth}
+                  />
+                </>
               )}
 
               {/* Table exploration panel */}

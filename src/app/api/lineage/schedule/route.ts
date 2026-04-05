@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requirePermission, PERMISSIONS } from '@/lib/permissions';
-import { requireAuth } from '@/lib/auth';
+import { requireClusterAccess } from '@/lib/auth';
 import { recordAuditLog } from '@/lib/local-db';
 import { getSchedule, setSchedule, getNextSyncTime } from '@/lib/lineage-scheduler';
 
@@ -17,6 +17,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'clusterId is required' }, { status: 400 });
     }
 
+    // S-2: verify cluster access
+    await requireClusterAccess(request, clusterId);
+
     const schedule = await getSchedule(clusterId);
     const nextSyncTime = getNextSyncTime(clusterId);
 
@@ -26,9 +29,12 @@ export async function GET(request: NextRequest) {
       nextSyncTime,
     });
   } catch (err) {
+    // R-3: log full error server-side, return sanitized message to client
+    console.error(`[Lineage Schedule API] GET error:`, err);
+    const status = (err as { status?: number }).status || 500;
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
+      { error: status < 500 && err instanceof Error ? err.message : '服务器内部错误' },
+      { status },
     );
   }
 }
@@ -46,6 +52,9 @@ export async function PUT(request: NextRequest) {
       );
     }
 
+    // S-2: verify cluster access (also gives us user for audit)
+    const { user } = await requireClusterAccess(request, clusterId);
+
     const validIntervals = [0, 5, 10, 30, 60];
     if (!validIntervals.includes(intervalMinutes)) {
       return NextResponse.json(
@@ -57,7 +66,6 @@ export async function PUT(request: NextRequest) {
     await setSchedule(clusterId, intervalMinutes);
 
     // Audit: lineage.schedule
-    const { user } = await requireAuth(request);
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || '';
     const label = intervalMinutes === 0 ? '手动同步' : `每 ${intervalMinutes} 分钟`;
     await recordAuditLog({
@@ -74,9 +82,12 @@ export async function PUT(request: NextRequest) {
       nextSyncTime: getNextSyncTime(clusterId),
     });
   } catch (err) {
+    // R-3: log full error server-side, return sanitized message to client
+    console.error(`[Lineage Schedule API] PUT error:`, err);
+    const status = (err as { status?: number }).status || 500;
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
+      { error: status < 500 && err instanceof Error ? err.message : '服务器内部错误' },
+      { status },
     );
   }
 }

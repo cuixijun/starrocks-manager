@@ -61,8 +61,19 @@ export default function TableLineagePanel({
   const [downExpanded, setDownExpanded] = useState(true);
   const [copied, setCopied] = useState(false);
 
-  const isDark = typeof document !== 'undefined' &&
-    document.documentElement.getAttribute('data-theme') === 'dark';
+  // L-1 fix: reactive isDark — listen to data-theme attribute changes (matches ForceGraph pattern)
+  const [isDark, setIsDark] = useState(() =>
+    typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') === 'dark'
+  );
+  useEffect(() => {
+    const el = document.documentElement;
+    setIsDark(el.getAttribute('data-theme') === 'dark');
+    const observer = new MutationObserver(() => {
+      setIsDark(el.getAttribute('data-theme') === 'dark');
+    });
+    observer.observe(el, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => observer.disconnect();
+  }, []);
 
   const loadLineage = useCallback(async () => {
     if (!clusterId || !dbName || !tableName) return;
@@ -73,7 +84,9 @@ export default function TableLineagePanel({
       );
       const data: RawLineageGraph = await res.json();
       setGraph(data);
-    } catch { /* ignore */ }
+    } catch (err) {
+      console.warn('[Lineage] Failed to load table lineage:', err);
+    }
     finally { setLoading(false); }
   }, [clusterId, dbName, tableName]);
 
@@ -87,11 +100,15 @@ export default function TableLineagePanel({
   // Compute upstream / downstream relations
   const relations: RelationDetail[] = [];
   if (graph && rootNode) {
+    // Pre-build O(1) node lookup index (fixes O(E×N) → O(E))
+    const nodeMap = new Map<number, RawLineageNode>();
+    graph.nodes.forEach(n => nodeMap.set(n.id, n));
+
     // Upstream: edges where target = rootNode
     const upEdges = graph.edges.filter(e => e.target_node_id === rootNode.id);
     const upNodes = new Map<number, RawLineageNode>();
     upEdges.forEach(e => {
-      const n = graph.nodes.find(node => node.id === e.source_node_id);
+      const n = nodeMap.get(e.source_node_id);
       if (n) upNodes.set(n.id, n);
     });
     upNodes.forEach(node => {
@@ -106,7 +123,7 @@ export default function TableLineagePanel({
     const downEdges = graph.edges.filter(e => e.source_node_id === rootNode.id);
     const downNodes = new Map<number, RawLineageNode>();
     downEdges.forEach(e => {
-      const n = graph.nodes.find(node => node.id === e.target_node_id);
+      const n = nodeMap.get(e.target_node_id);
       if (n) downNodes.set(n.id, n);
     });
     downNodes.forEach(node => {

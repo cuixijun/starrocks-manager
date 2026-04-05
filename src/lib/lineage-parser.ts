@@ -20,7 +20,10 @@ export interface LineageResult {
   parsed: boolean; // true = AST, false = regex fallback
 }
 
-const parser = new Parser();
+/** Create a fresh parser per call to isolate internal state (M-3 fix) */
+function createParser() {
+  return new Parser();
+}
 
 /**
  * Resolve 1/2/3-part identifier to TableRef.
@@ -111,7 +114,7 @@ function parseWithAST(
   relationType: LineageResult['relationType'],
 ): LineageResult | null {
   // node-sql-parser uses MySQL dialect which is close to StarRocks
-  const ast = parser.astify(sql, { database: 'mysql' });
+  const ast = createParser().astify(sql, { database: 'mysql' });
 
   const targets: TableRef[] = [];
   const sources: TableRef[] = [];
@@ -212,18 +215,11 @@ function collectSourceTables(node: any, sources: TableRef[], defaultDb: string) 
     }
   }
 
-  // Nested SELECT expr
-  if (node.type === 'select') {
-    if (node.from) {
-      const fromList = Array.isArray(node.from) ? node.from : [node.from];
-      for (const f of fromList) {
-        if (f.table) {
-          sources.push(resolveIdentifier([f.schema, f.db, f.table].filter(Boolean), defaultDb));
-        }
-        if (f.expr && f.expr.ast) {
-          collectSourceTables(f.expr.ast, sources, defaultDb);
-        }
-      }
+  // Nested SELECT expr — scan column subqueries (FROM already handled above)
+  if (node.type === 'select' && node.columns) {
+    const cols = Array.isArray(node.columns) ? node.columns : [];
+    for (const col of cols) {
+      if (col.expr?.ast) collectSourceTables(col.expr.ast, sources, defaultDb);
     }
   }
 
@@ -296,11 +292,17 @@ function parseWithRegex(
 function extractFromTables(sql: string, sources: TableRef[], defaultDb: string, cteNames?: Set<string>) {
   // Match FROM/JOIN with 1, 2, or 3-part identifiers: [catalog.][db.]table
   const pattern = /(?:FROM|JOIN)\s+`?(\w+)`?(?:\s*\.\s*`?(\w+)`?)?(?:\s*\.\s*`?(\w+)`?)?(?:\s+(?:AS\s+)?`?\w+`?)?/gi;
+  // SQL keywords that may be confused as table names after FROM/JOIN
+  const skipWords = new Set([
+    'SELECT', 'WHERE', 'SET', 'VALUES', 'DUAL', 'INFORMATION_SCHEMA', 'LATERAL',
+    'GROUP', 'ORDER', 'HAVING', 'LIMIT', 'UNION', 'EXCEPT', 'INTERSECT',
+    'INSERT', 'UPDATE', 'DELETE', 'INTO', 'CREATE', 'ALTER', 'DROP',
+    'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'AS', 'ON', 'AND', 'OR', 'NOT', 'IN',
+    'EXISTS', 'BETWEEN', 'LIKE', 'IS', 'NULL', 'TRUE', 'FALSE',
+  ]);
   let match;
   while ((match = pattern.exec(sql)) !== null) {
     const [, p1, p2, p3] = match;
-    // Skip SQL keywords that may be confused as table names
-    const skipWords = new Set(['SELECT', 'WHERE', 'SET', 'VALUES', 'DUAL', 'INFORMATION_SCHEMA', 'LATERAL']);
     const tableName = p3 || p2 || p1;
     if (skipWords.has(tableName.toUpperCase())) continue;
     if (skipWords.has(p1.toUpperCase())) continue;
@@ -350,8 +352,8 @@ function dedup(refs: TableRef[]): TableRef[] {
 
 /* ── Query SQL parsing (SELECT statements) ───────────────── */
 
-/** System databases — tables from these DBs are excluded from query source lineage */
-const SYSTEM_DB_SET = new Set([
+/** System databases — single source of truth (N-9 fix, exported for use by lineage-collector) */
+export const SYSTEM_DBS = new Set([
   'information_schema', 'starrocks_audit_db__', '_statistics_',
   'sys', 'mysql', 'performance_schema', 'starrocks_monitor',
 ]);
@@ -378,7 +380,7 @@ export function parseQuerySources(sql: string, defaultDb: string): TableRef[] | 
 
   // Try AST parsing first
   try {
-    const ast = parser.astify(trimmed, { database: 'mysql' });
+    const ast = createParser().astify(trimmed, { database: 'mysql' });
     const stmts = Array.isArray(ast) ? ast : [ast];
     for (const stmt of stmts) {
       if (!stmt) continue;
@@ -409,6 +411,6 @@ export function parseQuerySources(sql: string, defaultDb: string): TableRef[] | 
 
 /** Remove tables that belong to system databases */
 function filterSystemTables(refs: TableRef[]): TableRef[] {
-  return refs.filter(r => !SYSTEM_DB_SET.has(r.db.toLowerCase()));
+  return refs.filter(r => !SYSTEM_DBS.has(r.db.toLowerCase()));
 }
 
